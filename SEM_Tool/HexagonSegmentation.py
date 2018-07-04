@@ -82,6 +82,11 @@ class HexagonalSegmentation:
 		self.img_data = cv2.cvtColor(self.img_data, cv2.COLOR_RGB2GRAY)
 		self.wImgItem.setImage(self.img_data,levels=(0,255))
 
+		for roi_name in self.roi_dict.keys():
+			roi, list_item = self.roi_dict[roi_name]
+			self.wROIList.takeItem(self.wROIList.row(list_item))
+			self.wImgBox_VB.removeItem(roi)
+		self.roi_dict = {}
 		self.w.setWindowTitle(self.img_fname)
 
 	def removeROI(self):
@@ -139,7 +144,7 @@ class HexagonalSegmentation:
 		for roi_name in self.roi_dict.keys():
 			roi = self.roi_dict[roi_name][0]
 			region = roi.getArrayRegion(self.img_data,self.wImgItem)
-			cv2.imwrite(os.path.join(save_directory,roi_name)+'.png',region)
+			cv2.imwrite(os.path.join(save_directory,"%s_%s.png"%(self.img_fname.strip('.png'),roi_name)),region)
 
 	def run(self):
 		self.w.show()
