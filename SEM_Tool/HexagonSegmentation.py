@@ -103,6 +103,7 @@ class HexagonalSegmentation:
 
 		new_roi = pg.ROI(pos=(0,0),size=(100,100),removable=True)
 		new_roi.addScaleHandle(pos=(1,1),center=(0,0),lockAspect=True)
+		new_roi.addRotateHandle(pos=(0,0),center=(0.5,0.5))
 		self.wImgBox_VB.addItem(new_roi)
 		list_item = QtGui.QListWidgetItem(roi_name)
 		self.roi_dict[roi_name] = [new_roi,list_item]
