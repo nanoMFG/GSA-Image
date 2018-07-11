@@ -141,6 +141,7 @@ class Modification:
   def __init__(self,mod_in=None,img_item=None):
     self.mod_in = mod_in
     self.img_item = img_item
+    self.scale = 1
     if mod_in != None:
       self.img_out = self.mod_in.image()
     else:
@@ -395,9 +396,17 @@ class FindContours(Modification):
   def __init__(self,mod_in,img_item):
     super(FindContours,self).__init__(mod_in,img_item)
     self.wLayout = pg.LayoutWidget()
+    self.img_inv = self.mod_in.image().copy()
+    self.img_inv[self.img_inv < 255] = 0
+    self.img_inv = 255 - self.img_inv
+
+    self.tol = 0.04
+    self.wTolEdit = QtGui.QLineEdit(str(self.tol))
+    self.wTolEdit.setValidator(QtGui.QDoubleValidator(0,1,3))
+    self.wTolEdit.setFixedWidth(60)
 
     self._img, self.contours, self.hierarchy = cv2.findContours(
-      self.mod_in.image().copy(),
+      self.img_inv,
       cv2.RETR_LIST,
       cv2.CHAIN_APPROX_SIMPLE)
 
@@ -411,33 +420,41 @@ class FindContours(Modification):
       self.contour_dict[key]['index'] = i
       self.contour_dict[key]['list_item'] = QtGui.QListWidgetItem(key)
       self.contour_dict[key]['contour'] = cnt
-      self.contour_dict[key]['area'] = cv2.contourArea(cnt)
-
-    
-    self.wContourList.addItem(self.contour_dict[key]['list_item'])
+      self.contour_dict[key]['area'] = cv2.contourArea(cnt,oriented=True)
+      if self.detect_hexagon(cnt) and self.contour_dict[key]['area'] < 0:
+        self.wContourList.addItem(self.contour_dict[key]['list_item'])
     
     self.wContourList.itemSelectionChanged.connect(self.update_image)
     self.wContourList.itemClicked.connect(self.update_image)
+    self.wTolEdit.returnPressed.connect(self.update_image)
     if len(self.contour_dict.keys())>0:
       self.wContourList.setCurrentItem(self.contour_dict['0 Contour']['list_item'])
     
     self.wLayout.addWidget(self.wContourList,0,0)
+    self.wLayout.addWidget(QtGui.QLabel('Tolerance:'),0,1)
+    self.wLayout.addWidget(self.wTolEdit,0,2)
 
     self.update_image()
 
   def update_image(self):
-    self.img_out = np.ones_like(self.mod_in.image())*255
+    self.img_out = self.mod_in.image().copy()
     selection = self.wContourList.selectedItems()
     if len(selection) == 1:
       cnt_key = selection[0].text()
-      cv2.drawContours(self.img_out,self.contours,self.contour_dict[cnt_key]['index'],thickness=4,color=(0,255,0))
+      cv2.drawContours(self.img_out,self.contours,self.contour_dict[cnt_key]['index'],thickness=-1,color=(0,255,0))
     self.img_item.setImage(self.img_out,levels=(0,255))
+
+  def detect_hexagon(self,cnt):
+    peri = cv2.arcLength(cnt, True)
+    approx = cv2.approxPolyDP(cnt, self.tol * peri, True)
+    return len(approx) == 6
 
   def widget(self):
     return self.wLayout
 
   def name(self):
     return 'Find Contours'
+
 
 app = QtGui.QApplication([])      
 img_analyzer = ImageAnalyzer()
