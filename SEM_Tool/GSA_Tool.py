@@ -117,21 +117,24 @@ class ImageAnalyzer:
       self.updateAll(mod)
     
   def openFile(self):
-    self.img_file_path = QtGui.QFileDialog.getOpenFileName()
-    if isinstance(self.img_file_path,tuple):
-      self.img_file_path = self.img_file_path[0]
-    else:
+    try:
+      self.img_file_path = QtGui.QFileDialog.getOpenFileName()
+      if isinstance(self.img_file_path,tuple):
+        self.img_file_path = self.img_file_path[0]
+      else:
+        return
+      self.img_fname = self.img_file_path.split('/')[-1]
+      self.img_data = cv2.imread(self.img_file_path)
+      self.img_data = cv2.cvtColor(self.img_data, cv2.COLOR_RGB2GRAY)
+    
+      mod = InitialImage(img_item=self.wImgItem)
+      mod.set_image(self.img_data)
+      self.modifications = mod
+      
+      self.updateAll(mod)
+      self.w.setWindowTitle(self.img_fname)
+    except:
       return
-    self.img_fname = self.img_file_path.split('/')[-1]
-    self.img_data = cv2.imread(self.img_file_path)
-    self.img_data = cv2.cvtColor(self.img_data, cv2.COLOR_RGB2GRAY)
-    
-    mod = InitialImage(img_item=self.wImgItem)
-    mod.set_image(self.img_data)
-    self.modifications = mod
-    
-    self.updateAll(mod)
-    self.w.setWindowTitle(self.img_fname)
   
   def run(self):
     self.w.show()
@@ -171,6 +174,11 @@ class Modification:
       elif n != 0:
         return self.mod_in.back_traverse(n-1)
     elif n == 0:
+      return self
+  def root(self):
+    if self.mod_in != None:
+      return self.mod_in.root()
+    else:
       return self
 
 class InitialImage(Modification):
@@ -405,6 +413,16 @@ class FindContours(Modification):
     self.wTolEdit.setValidator(QtGui.QDoubleValidator(0,1,3))
     self.wTolEdit.setFixedWidth(60)
 
+    self.lowVert = 6
+    self.wLowEdit = QtGui.QLineEdit(str(self.lowVert))
+    self.wLowEdit.setValidator(QtGui.QIntValidator(3,20))
+    self.wLowEdit.setFixedWidth(60)
+
+    self.highVert = 6
+    self.wHighEdit = QtGui.QLineEdit(str(self.highVert))
+    self.wHighEdit.setValidator(QtGui.QIntValidator(3,20))
+    self.wHighEdit.setFixedWidth(60)
+
     self._img, self.contours, self.hierarchy = cv2.findContours(
       self.img_inv,
       cv2.RETR_LIST,
@@ -421,18 +439,23 @@ class FindContours(Modification):
       self.contour_dict[key]['list_item'] = QtGui.QListWidgetItem(key)
       self.contour_dict[key]['contour'] = cnt
       self.contour_dict[key]['area'] = cv2.contourArea(cnt,oriented=True)
-      if self.detect_hexagon(cnt) and self.contour_dict[key]['area'] < 0:
-        self.wContourList.addItem(self.contour_dict[key]['list_item'])
-    
+    self.update_tol()
+
     self.wContourList.itemSelectionChanged.connect(self.update_image)
     self.wContourList.itemClicked.connect(self.update_image)
-    self.wTolEdit.returnPressed.connect(self.update_image)
+    self.wTolEdit.returnPressed.connect(self.update_tol)
+    self.wLowEdit.returnPressed.connect(self.update_tol)
+    self.wHighEdit.returnPressed.connect(self.update_tol)
+    
     if len(self.contour_dict.keys())>0:
       self.wContourList.setCurrentItem(self.contour_dict['0 Contour']['list_item'])
     
     self.wLayout.addWidget(self.wContourList,0,0)
-    self.wLayout.addWidget(QtGui.QLabel('Tolerance:'),0,1)
+    self.wLayout.addWidget(QtGui.QLabel('Polygon Tolerance:'),0,1)
     self.wLayout.addWidget(self.wTolEdit,0,2)
+    self.wLayout.addWidget(QtGui.QLabel('Vertex Tolerance:'),1,1)
+    self.wLayout.addWidget(self.wLowEdit,1,2)
+    self.wLayout.addWidget(self.wHighEdit,1,3)
 
     self.update_image()
 
@@ -444,10 +467,22 @@ class FindContours(Modification):
       cv2.drawContours(self.img_out,self.contours,self.contour_dict[cnt_key]['index'],thickness=-1,color=(0,255,0))
     self.img_item.setImage(self.img_out,levels=(0,255))
 
-  def detect_hexagon(self,cnt):
+  def detect_poly(self,cnt):
     peri = cv2.arcLength(cnt, True)
     approx = cv2.approxPolyDP(cnt, self.tol * peri, True)
-    return len(approx) == 6
+    return len(approx) >= self.lowVert and len(approx) <= self.highVert
+
+  def update_tol(self):
+    self.tol = float(self.wTolEdit.text())
+    self.lowVert = float(self.wLowEdit.text())
+    self.highVert = float(self.wHighEdit.text())
+    self.wContourList.clear()
+    for key in self.contour_dict.keys():
+      cnt = self.contour_dict[key]['contour']
+      area = self.contour_dict[key]['area']
+      if self.detect_poly(cnt) and  area < 0:
+        self.contour_dict[key]['list_item'] = QtGui.QListWidgetItem(key)
+        self.wContourList.addItem(self.contour_dict[key]['list_item'])
 
   def widget(self):
     return self.wLayout
@@ -455,6 +490,9 @@ class FindContours(Modification):
   def name(self):
     return 'Find Contours'
 
+def FilterPattern(Modification):
+  def __init__(self,mod_in,img_item):
+    super(FindContours,self).__init__(mod_in,img_item)
 
 app = QtGui.QApplication([])      
 img_analyzer = ImageAnalyzer()
