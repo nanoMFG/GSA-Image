@@ -22,13 +22,14 @@ class ImageAnalyzer:
     'Dilate': Dilation,
     'Erode': Erosion,
     'Binary Mask': BinaryMask,
-    'Find Contours': FindContours
+    'Find Contours': FindContours,
+    'Filter Pattern': FilterPattern
     }    
     
     self.wComboBox = pg.ComboBox()
     self.wComboBox.addItem('Color Mask')
     self.wComboBox.addItem('Binary Mask')
-    # self.wComboBox.addItem('Denoise')
+    self.wComboBox.addItem('Filter Pattern')
     self.wComboBox.addItem('Canny Edge Detector')
     self.wComboBox.addItem('Dilate')
     self.wComboBox.addItem('Erode')
@@ -464,13 +465,14 @@ class FindContours(Modification):
     selection = self.wContourList.selectedItems()
     if len(selection) == 1:
       cnt_key = selection[0].text()
-      cv2.drawContours(self.img_out,self.contours,self.contour_dict[cnt_key]['index'],thickness=-1,color=(0,255,0))
+      accept, approx = self.detect_poly(self.contour_dict[cnt_key]['contour'])
+      cv2.drawContours(self.img_out,[approx],0,thickness=2,color=(0,255,0))
     self.img_item.setImage(self.img_out,levels=(0,255))
 
   def detect_poly(self,cnt):
     peri = cv2.arcLength(cnt, True)
     approx = cv2.approxPolyDP(cnt, self.tol * peri, True)
-    return len(approx) >= self.lowVert and len(approx) <= self.highVert
+    return len(approx) >= self.lowVert and len(approx) <= self.highVert, approx
 
   def update_tol(self):
     self.tol = float(self.wTolEdit.text())
@@ -480,7 +482,8 @@ class FindContours(Modification):
     for key in self.contour_dict.keys():
       cnt = self.contour_dict[key]['contour']
       area = self.contour_dict[key]['area']
-      if self.detect_poly(cnt) and  area < 0:
+      accept, approx = self.detect_poly(cnt)
+      if accept and  area < 0:
         self.contour_dict[key]['list_item'] = QtGui.QListWidgetItem(key)
         self.wContourList.addItem(self.contour_dict[key]['list_item'])
 
@@ -490,9 +493,61 @@ class FindContours(Modification):
   def name(self):
     return 'Find Contours'
 
-def FilterPattern(Modification):
+class FilterPattern(Modification):
   def __init__(self,mod_in,img_item):
-    super(FindContours,self).__init__(mod_in,img_item)
+    super(FilterPattern,self).__init__(mod_in,img_item)
+    self.wLayout = pg.LayoutWidget()
+
+    self.wComboBox = pg.ComboBox()
+    self.wComboBox.addItem('TM_SQDIFF')
+    self.wComboBox.addItem('TM_SQDIFF_NORMED')
+    self.wComboBox.addItem('TM_CCORR')
+    self.wComboBox.addItem('TM_CCORR_NORMED')
+    self.wComboBox.addItem('TM_CCOEFF')
+    self.wComboBox.addItem('TM_CCOEFF_NORMED')
+
+    self.method_dict = {
+      'TM_SQDIFF': cv2.TM_SQDIFF,
+      'TM_SQDIFF_NORMED': cv2.TM_SQDIFF_NORMED,
+      'TM_CCORR': cv2.TM_CCORR,
+      'TM_CCORR_NORMED': cv2.TM_CCORR_NORMED,
+      'TM_CCOEFF': cv2.TM_CCOEFF,
+      'TM_CCOEFF_NORMED': cv2.TM_CCOEFF_NORMED
+    }
+
+    self.wThreshSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wThreshSlider.setMinimum(1)
+    self.wThreshSlider.setMaximum(100)
+    self.wThreshSlider.setSliderPosition(90)
+
+    self.wLayout.addWidget(self.wComboBox,0,0)
+    self.wLayout.addWidget(self.wThreshSlider,1,0)
+
+    self.roi = pg.ROI(pos=(0,0),size=(20,20),removable=True)
+    self.img_item.parentItem().addItem(self.roi)
+    self.wThreshSlider.valueChanged.connect(self.update_image)
+    self.roi.sigRegionChanged.connect(self.update_image)
+    self.wComboBox.currentIndexChanged.connect(self.update_image)
+
+  def update_image(self):
+    value = self.wComboBox.value()
+    region = self.roi.getArrayRegion(self.mod_in.image(),self.img_item)
+    region = region.astype(np.uint8)
+    x,y = region.shape
+    padded_image = cv2.copyMakeBorder(self.mod_in.image().copy(),int(y/2-1),int(y/2),int(x/2-1),int(x/2),cv2.BORDER_REFLECT_101)
+    res = cv2.matchTemplate(padded_image,region,self.method_dict[value])
+    maxVal = res.flatten().max()
+    threshold = maxVal * self.wThreshSlider.value()/100.
+    self.img_out = self.mod_in.image().copy()
+    self.img_out[res < threshold] = 255
+    self.img_item.setImage(self.img_out,levels=(0,255))
+
+  def widget(self):
+    return self.wLayout
+
+  def name(self):
+    return 'Filter Pattern'
+
 
 app = QtGui.QApplication([])      
 img_analyzer = ImageAnalyzer()
