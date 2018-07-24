@@ -1,6 +1,5 @@
 import numpy as np
 import cv2, sys
-from skimage import measure
 from PyQt5 import QtGui, QtCore
 import pyqtgraph as pg
 
@@ -10,6 +9,7 @@ class ImageAnalyzer:
     self.img_fname = None
     self.img_data = None
     self.modifications = None
+    self.properties = {}
     self.selectedWidget = None
     
     self.w = QtGui.QWidget()
@@ -153,6 +153,7 @@ class Modification:
   def __init__(self,mod_in=None,img_item=None):
     self.mod_in = mod_in
     self.img_item = img_item
+    self.properties = {}
     self.scale = 1
     if mod_in != None:
       self.img_out = self.mod_in.image()
@@ -168,7 +169,7 @@ class Modification:
   def set_image(self,img):
     self.img_out = img
   def update_image(self):
-    pass
+    return self.properties
   def delete_mod(self):
     return self.mod_in
   def mod_list(self):
@@ -580,9 +581,9 @@ class FilterPattern(Modification):
     self.wThreshSlider.setSliderPosition(100)
 
     self.wSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-    self.wSizeSlider.setMinimum(5)
+    self.wSizeSlider.setMinimum(2)
     self.wSizeSlider.setMaximum(50)
-    self.wSizeSlider.setSliderPosition(20)
+    self.wSizeSlider.setSliderPosition(5)
 
     self.wFilterAreaLabel = QtGui.QLabel('')
 
@@ -616,6 +617,7 @@ class FilterPattern(Modification):
       if 2*int(self.wSizeSlider.value()) != self.roi_size:
         self.roi_size = 2*int(self.wSizeSlider.value())
         self.roi.setSize([self.roi_size,self.roi_size])
+      
       value = self.wComboBox.value()
       region = self.roi.getArrayRegion(self.mod_in.image(),self.wImgROI)
       region = region.astype(np.uint8)
@@ -632,7 +634,6 @@ class FilterPattern(Modification):
       self.wFilterAreaLabel.setNum(np.sum(self.mask_idxs)*self.scale)
       self.img_item.setImage(self.img_out,levels=(0,255))
     except Exception as e:
-      print(e)
       print('Error on line {}'.format(sys.exc_info()[-1].tb_lineno), type(e).__name__, e)
 
 
