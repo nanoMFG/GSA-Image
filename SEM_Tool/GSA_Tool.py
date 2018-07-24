@@ -1,5 +1,6 @@
 import numpy as np
-import cv2
+import cv2, sys
+from skimage import measure
 from PyQt5 import QtGui, QtCore
 import pyqtgraph as pg
 
@@ -23,7 +24,8 @@ class ImageAnalyzer:
     'Erode': Erosion,
     'Binary Mask': BinaryMask,
     'Find Contours': FindContours,
-    'Filter Pattern': FilterPattern
+    'Filter Pattern': FilterPattern,
+    'Blur': Blur
     }    
     
     self.wComboBox = pg.ComboBox()
@@ -34,6 +36,7 @@ class ImageAnalyzer:
     self.wComboBox.addItem('Dilate')
     self.wComboBox.addItem('Erode')
     self.wComboBox.addItem('Find Contours')
+    self.wComboBox.addItem('Blur')
 
     self.wAddMod = QtGui.QPushButton('Add Modification')
     self.wAddMod.clicked.connect(self.addMod)
@@ -49,14 +52,13 @@ class ImageAnalyzer:
     self.wImgBox = pg.GraphicsLayoutWidget()
     self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
     self.wImgItem = pg.ImageItem()
-    self.wImgBox_VB.addItem(self.wImgItem)
     
     self.wImgBox_VB.addItem(self.wImgItem)
     self.wImgBox_VB.setAspectLocked(True)
-    self.wImgBox_VB.setMouseEnabled(False,False)
+    # self.wImgBox_VB.setMouseEnabled(False,False)
     
     self.layout = QtGui.QGridLayout()
-    self.layout.setColumnStretch(0,4)
+    self.layout.setColumnStretch(0,10)
     self.layout.addWidget(self.wOpenFileBtn, 0,0)
     self.layout.addWidget(self.wAddMod, 1,0)
     self.layout.addWidget(self.wRemoveMod,2,0)
@@ -67,7 +69,10 @@ class ImageAnalyzer:
     self.w.setLayout(self.layout)
   
   def updateAll(self,mod):
-    mod.update_image()
+    try:
+      mod.update_image()
+    except:
+      pass
     self.updateModWidget(mod.widget())
     self.updateListBox(mod.mod_list())
     if self.wModList.count() > 0:
@@ -90,7 +95,10 @@ class ImageAnalyzer:
     if len(selection) == 1:
       selection = selection[0]
       mod = self.modifications.back_traverse(self.wModList.count() - self.wModList.row(selection) - 1)
-      mod.update_image()
+      try:
+        mod.update_image()
+      except:
+        pass
       if self.wModList.row(selection) < self.wModList.count() - 1:
         self.updateModWidget(None)
       else:
@@ -98,7 +106,7 @@ class ImageAnalyzer:
 
   def removeMod(self):
     selection = self.wModList.selectedItems()
-    if len(selection) == 1:
+    if len(selection) == 1 and self.modifications != None:
       row = self.wModList.row(selection[0])
       if row == self.wModList.count() - 1:
         if self.modifications.widget() != None:
@@ -114,7 +122,7 @@ class ImageAnalyzer:
       mod = self.mod_dict[value](self.modifications,self.wImgItem)
       self.modifications = mod
       widget = mod.widget()
-      self.layout.addWidget(widget,6,1)
+      self.layout.addWidget(widget,0,7,5,5,alignment=QtCore.Qt.AlignTop)
       self.updateAll(mod)
     
   def openFile(self):
@@ -265,12 +273,12 @@ class CannyEdgeDetection(Modification):
 
     self.wToolBox.addWidget(QtGui.QLabel('Gaussian Size'),0,0)
     self.wToolBox.addWidget(QtGui.QLabel('Low Threshold'),1,0)
-    self.wToolBox.addWidget(QtGui.QLabel('High Threshold'),2,0)
+    self.wToolBox.addWidget(QtGui.QLabel('High Threshold'),3,0)
     self.wToolBox.addWidget(self.wGaussEdit,0,1)
     self.wToolBox.addWidget(self.wLowEdit,1,1)
-    self.wToolBox.addWidget(self.wHighEdit,2,1)
-    self.wToolBox.addWidget(self.wLowSlider,1,2)
-    self.wToolBox.addWidget(self.wHighSlider,2,2)
+    self.wToolBox.addWidget(self.wHighEdit,3,1)
+    self.wToolBox.addWidget(self.wLowSlider,2,0,1,2)
+    self.wToolBox.addWidget(self.wHighSlider,4,0,1,2)
 
   def name(self):
     return 'Canny Edge Detection'
@@ -298,7 +306,7 @@ class CannyEdgeDetection(Modification):
 
   def update_image(self):
     self.img_out = cv2.GaussianBlur(self.mod_in.image(),(self.gauss_size,self.gauss_size),0)
-    self.img_out = 255-cv2.Canny(self.img_out,self.low_thresh,self.high_thresh)
+    self.img_out = 255-cv2.Canny(self.img_out,self.low_thresh,self.high_thresh,L2gradient=True)
     self.img_item.setImage(self.img_out,levels=(0,255))
   
   def widget(self):
@@ -323,7 +331,7 @@ class Dilation(Modification):
 
     self.wToolBox.addWidget(QtGui.QLabel('Kernel Size'),0,0)
     self.wToolBox.addWidget(self.wSizeEdit,0,1)
-    self.wToolBox.addWidget(self.wSizeSlider,0,2)
+    self.wToolBox.addWidget(self.wSizeSlider,1,0,1,2)
 
   def name(self):
     return 'Dilation'
@@ -364,7 +372,7 @@ class Erosion(Modification):
 
     self.wToolBox.addWidget(QtGui.QLabel('Kernel Size'),0,0)
     self.wToolBox.addWidget(self.wSizeEdit,0,1)
-    self.wToolBox.addWidget(self.wSizeSlider,0,2)
+    self.wToolBox.addWidget(self.wSizeSlider,1,0,1,2)
 
   def name(self):
     return 'Erosion'
@@ -416,13 +424,18 @@ class FindContours(Modification):
 
     self.lowVert = 6
     self.wLowEdit = QtGui.QLineEdit(str(self.lowVert))
-    self.wLowEdit.setValidator(QtGui.QIntValidator(3,20))
+    self.wLowEdit.setValidator(QtGui.QIntValidator(3,100))
     self.wLowEdit.setFixedWidth(60)
 
     self.highVert = 6
     self.wHighEdit = QtGui.QLineEdit(str(self.highVert))
-    self.wHighEdit.setValidator(QtGui.QIntValidator(3,20))
+    self.wHighEdit.setValidator(QtGui.QIntValidator(3,100))
     self.wHighEdit.setFixedWidth(60)
+
+    self.wThreshSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wThreshSlider.setMinimum(0)
+    self.wThreshSlider.setMaximum(100)
+    self.wThreshSlider.setSliderPosition(50)
 
     self._img, self.contours, self.hierarchy = cv2.findContours(
       self.img_inv,
@@ -430,6 +443,7 @@ class FindContours(Modification):
       cv2.CHAIN_APPROX_SIMPLE)
 
     self.contour_dict = {}
+    self.contour_area_max = 1
     
     self.wContourList = QtGui.QListWidget()
     self.wContourList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
@@ -440,6 +454,8 @@ class FindContours(Modification):
       self.contour_dict[key]['list_item'] = QtGui.QListWidgetItem(key)
       self.contour_dict[key]['contour'] = cnt
       self.contour_dict[key]['area'] = cv2.contourArea(cnt,oriented=True)
+      if abs(self.contour_dict[key]['area']) > self.contour_area_max:
+        self.contour_area_max = abs(self.contour_dict[key]['area'])
     self.update_tol()
 
     self.wContourList.itemSelectionChanged.connect(self.update_image)
@@ -447,16 +463,19 @@ class FindContours(Modification):
     self.wTolEdit.returnPressed.connect(self.update_tol)
     self.wLowEdit.returnPressed.connect(self.update_tol)
     self.wHighEdit.returnPressed.connect(self.update_tol)
+    self.wThreshSlider.valueChanged.connect(self.update_tol)
     
     if len(self.contour_dict.keys())>0:
       self.wContourList.setCurrentItem(self.contour_dict['0 Contour']['list_item'])
     
-    self.wLayout.addWidget(self.wContourList,0,0)
-    self.wLayout.addWidget(QtGui.QLabel('Polygon Tolerance:'),0,1)
-    self.wLayout.addWidget(self.wTolEdit,0,2)
-    self.wLayout.addWidget(QtGui.QLabel('Vertex Tolerance:'),1,1)
-    self.wLayout.addWidget(self.wLowEdit,1,2)
-    self.wLayout.addWidget(self.wHighEdit,1,3)
+    self.wLayout.addWidget(self.wContourList,0,0,2,1)
+    self.wLayout.addWidget(QtGui.QLabel('Polygon Tolerance:'),3,0)
+    self.wLayout.addWidget(self.wTolEdit,3,1)
+    self.wLayout.addWidget(QtGui.QLabel('Vertex Tolerance:'),4,0)
+    self.wLayout.addWidget(self.wLowEdit,4,1)
+    self.wLayout.addWidget(self.wHighEdit,4,2)
+    self.wLayout.addWidget(QtGui.QLabel('Contour Area Tolerance:'),5,0)
+    self.wLayout.addWidget(self.wThreshSlider,6,0,1,3)
 
     self.update_image()
 
@@ -478,12 +497,13 @@ class FindContours(Modification):
     self.tol = float(self.wTolEdit.text())
     self.lowVert = float(self.wLowEdit.text())
     self.highVert = float(self.wHighEdit.text())
+    self.areaThresh = float(self.wThreshSlider.value())/100.
     self.wContourList.clear()
     for key in self.contour_dict.keys():
       cnt = self.contour_dict[key]['contour']
       area = self.contour_dict[key]['area']
       accept, approx = self.detect_poly(cnt)
-      if accept and  area < 0:
+      if accept and area < 0 and abs(area/self.contour_area_max) >= self.areaThresh:
         self.contour_dict[key]['list_item'] = QtGui.QListWidgetItem(key)
         self.wContourList.addItem(self.contour_dict[key]['list_item'])
 
@@ -493,10 +513,49 @@ class FindContours(Modification):
   def name(self):
     return 'Find Contours'
 
+class Blur(Modification):
+  def __init__(self,mod_in,img_item):
+    super(Blur,self).__init__(mod_in,img_item)
+    self.gauss_size = 5
+    self.wLayout = pg.LayoutWidget()
+    self.wGaussEdit = QtGui.QLineEdit(str(self.gauss_size))
+    self.wGaussEdit.setValidator(QtGui.QIntValidator(3,51))
+    self.wGaussEdit.setFixedWidth(60)   
+
+    self.wLayout.addWidget(QtGui.QLabel('Gaussian Size'),0,0)
+    self.wLayout.addWidget(self.wGaussEdit,1,0)
+
+    self.update_image()
+    self.wGaussEdit.returnPressed.connect(self.update_image)
+
+  def update_image(self):
+    self.gauss_size = int(self.wGaussEdit.text())
+    self.gauss_size = self.gauss_size + 1 if self.gauss_size % 2 == 0 else self.gauss_size
+    self.wGaussEdit.setText(str(self.gauss_size))
+
+    self.img_out = cv2.GaussianBlur(self.mod_in.image(),(self.gauss_size,self.gauss_size),0)
+    self.img_item.setImage(self.img_out,levels=(0,255))
+
+  def widget(self):
+    return self.wLayout
+
+  def name(self):
+    return 'Blur'
+
 class FilterPattern(Modification):
   def __init__(self,mod_in,img_item):
     super(FilterPattern,self).__init__(mod_in,img_item)
+    self.roi_size = 20
+
     self.wLayout = pg.LayoutWidget()
+
+    self.wImgBox = pg.GraphicsLayoutWidget()
+    self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
+    self.wImgROI = pg.ImageItem()
+    self.wImgROI.setImage(img_item.image,levels=(0,255))
+    self.wImgBox_VB.addItem(self.wImgROI)
+    self.wImgBox_VB.setAspectLocked(True)
+    # self.wImgBox_VB.setMouseEnabled(False,False)
 
     self.wComboBox = pg.ComboBox()
     self.wComboBox.addItem('TM_SQDIFF')
@@ -517,30 +576,65 @@ class FilterPattern(Modification):
 
     self.wThreshSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wThreshSlider.setMinimum(1)
-    self.wThreshSlider.setMaximum(100)
-    self.wThreshSlider.setSliderPosition(90)
+    self.wThreshSlider.setMaximum(1000)
+    self.wThreshSlider.setSliderPosition(100)
 
-    self.wLayout.addWidget(self.wComboBox,0,0)
-    self.wLayout.addWidget(self.wThreshSlider,1,0)
+    self.wSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wSizeSlider.setMinimum(5)
+    self.wSizeSlider.setMaximum(50)
+    self.wSizeSlider.setSliderPosition(20)
 
-    self.roi = pg.ROI(pos=(0,0),size=(20,20),removable=True)
-    self.img_item.parentItem().addItem(self.roi)
+    self.wFilterAreaLabel = QtGui.QLabel('')
+
+    self.wLayout.addWidget(QtGui.QLabel('Filter Method:'),0,0)
+    self.wLayout.addWidget(self.wComboBox,0,1)
+    self.wLayout.addWidget(QtGui.QLabel('Threshold:'),1,0)
+    self.wLayout.addWidget(self.wThreshSlider,1,1)
+    self.wLayout.addWidget(QtGui.QLabel('ROI Size:'),2,0)
+    self.wLayout.addWidget(self.wSizeSlider,2,1)
+    self.wLayout.addWidget(QtGui.QLabel('Filter Area:'),3,0)
+    self.wLayout.addWidget(self.wFilterAreaLabel,3,1)
+    self.wLayout.addWidget(self.wImgBox,4,0,4,4)
+
+    self.roi = pg.ROI(
+      pos=(0,0),
+      size=(self.roi_size,self.roi_size),
+      removable=True,
+      pen=pg.mkPen(color='r',width=2),
+      maxBounds=self.wImgROI.boundingRect(),
+      scaleSnap=True,
+      snapSize=2)
+    # self.roi.addScaleHandle(pos=(1,1),center=(0,0),lockAspect=True)
+    self.wImgROI.parentItem().addItem(self.roi)
     self.wThreshSlider.valueChanged.connect(self.update_image)
     self.roi.sigRegionChanged.connect(self.update_image)
     self.wComboBox.currentIndexChanged.connect(self.update_image)
+    self.wSizeSlider.valueChanged.connect(self.update_image)
 
   def update_image(self):
-    value = self.wComboBox.value()
-    region = self.roi.getArrayRegion(self.mod_in.image(),self.img_item)
-    region = region.astype(np.uint8)
-    x,y = region.shape
-    padded_image = cv2.copyMakeBorder(self.mod_in.image().copy(),int(y/2-1),int(y/2),int(x/2-1),int(x/2),cv2.BORDER_REFLECT_101)
-    res = cv2.matchTemplate(padded_image,region,self.method_dict[value])
-    maxVal = res.flatten().max()
-    threshold = maxVal * self.wThreshSlider.value()/100.
-    self.img_out = self.mod_in.image().copy()
-    self.img_out[res < threshold] = 255
-    self.img_item.setImage(self.img_out,levels=(0,255))
+    try:
+      if 2*int(self.wSizeSlider.value()) != self.roi_size:
+        self.roi_size = 2*int(self.wSizeSlider.value())
+        self.roi.setSize([self.roi_size,self.roi_size])
+      value = self.wComboBox.value()
+      region = self.roi.getArrayRegion(self.mod_in.image(),self.wImgROI)
+      region = region.astype(np.uint8)
+      x,y = region.shape
+      padded_image = cv2.copyMakeBorder(self.mod_in.image().copy(),int(y/2-1),int(y/2),int(x/2-1),int(x/2),cv2.BORDER_REFLECT_101)
+      res = cv2.matchTemplate(padded_image,region,self.method_dict[value])
+      
+      maxVal = res.flatten().max()
+      threshold = maxVal * np.logspace(-3,0,1000)[self.wThreshSlider.value()]
+      self.img_out = self.mod_in.image().copy()
+      self.mask_idxs = res < threshold
+      self.img_out[self.mask_idxs] = 255
+      
+      self.wFilterAreaLabel.setNum(np.sum(self.mask_idxs)*self.scale)
+      self.img_item.setImage(self.img_out,levels=(0,255))
+    except Exception as e:
+      print(e)
+      print('Error on line {}'.format(sys.exc_info()[-1].tb_lineno), type(e).__name__, e)
+
 
   def widget(self):
     return self.wLayout
@@ -548,6 +642,17 @@ class FilterPattern(Modification):
   def name(self):
     return 'Filter Pattern'
 
+class Crop(Modification):
+  def __init__(self,mod_in,img_item):
+    pass
+
+class DomainCenters(Modification):
+  def __init__(self,mod_in,img_item):
+    pass
+
+class DrawScale(Modification):
+  def __init__(self,mod_in,img_item):
+    pass
 
 app = QtGui.QApplication([])      
 img_analyzer = ImageAnalyzer()
