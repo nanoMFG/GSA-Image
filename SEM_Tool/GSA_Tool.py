@@ -44,7 +44,8 @@ class ImageAnalyzer:
     'Draw Scale': DrawScale,
     'Crop': Crop,
     'Domain Centers': DomainCenters,
-    'Hough Transform': HoughTransform
+    'Hough Transform': HoughTransform,
+    'Erase': Erase
     }    
     
     self.wComboBox = pg.ComboBox()
@@ -174,7 +175,7 @@ class Modification:
   def widget(self):
     pass  
   def image(self):
-    return self.img_out
+    return self.img_out.copy()
   def name(self):
     return 'Default Modification'
   def set_image(self,img):
@@ -201,6 +202,21 @@ class Modification:
       return self.mod_in.root()
     else:
       return self
+  def length(self):
+    if self.mod_in != None:
+      return self.mod_in.length()+1
+    else:
+      return 1
+  def back_properties(self):
+    if self.mod_in != None:
+      d = self.mod_in.back_properties()
+      d.update(self.properties)
+      return d
+    else:
+      d = {}
+      d.update(self.properties)
+      return d
+      
 
 class InitialImage(Modification):
   def widget(self):
@@ -364,7 +380,7 @@ class Dilation(Modification):
     self.update_image()
 
   def update_image(self):
-    self.img_out = cv2.erode(self.mod_in.image().copy(),np.ones((self.size,self.size),np.uint8),iterations=1)
+    self.img_out = cv2.erode(self.mod_in.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
     self.img_item.setImage(self.img_out,levels=(0,255))
 
     return self.properties
@@ -436,7 +452,7 @@ class FindContours(Modification):
   def __init__(self,mod_in,img_item):
     super(FindContours,self).__init__(mod_in,img_item)
     self.wLayout = pg.LayoutWidget()
-    self.img_inv = self.mod_in.image().copy()
+    self.img_inv = self.mod_in.image()
     self.img_inv[self.img_inv < 255] = 0
     self.img_inv = 255 - self.img_inv
 
@@ -503,7 +519,7 @@ class FindContours(Modification):
     self.update_image()
 
   def update_image(self):
-    self.img_out = self.mod_in.image().copy()
+    self.img_out = self.mod_in.image()
     selection = self.wContourList.selectedItems()
     if len(selection) == 1:
       cnt_key = selection[0].text()
@@ -574,8 +590,8 @@ class FilterPattern(Modification):
     super(FilterPattern,self).__init__(mod_in,img_item)
     self.roi_size = 20
     self.scale = 1
-    self.roi_list = []
-    self.roi_item = None
+    self.layer_list = []
+    self._item = None
 
     self.wLayout = pg.LayoutWidget()
 
@@ -587,11 +603,10 @@ class FilterPattern(Modification):
 
     self.wImgBox = pg.GraphicsLayoutWidget()
     self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
-    self.wImgROI = pg.ImageItem()
+    self.wImgROI = ImageItemMask(self)
     self.wImgROI.setImage(self.img_item.image,levels=(0,255))
     self.wImgBox_VB.addItem(self.wImgROI)
     self.wImgBox_VB.setAspectLocked(True)
-    # self.wImgBox_VB.setMouseEnabled(False,False)
 
     self.wComboBox = pg.ComboBox()
     self.wComboBox.addItem('TM_SQDIFF')
@@ -640,8 +655,46 @@ class FilterPattern(Modification):
     self.wComboBox.currentIndexChanged.connect(self.update_image)
     self.wSizeSlider.valueChanged.connect(self.update_image)
     self.wAdd.clicked.connect(self.addROI)
-    self.wRemove.clicked.connect(self.removeROI)
-    self.wFilterList.itemSelectionChanged.connect(self.selectROI)
+    self.wRemove.clicked.connect(self.removeLayer)
+    self.wFilterList.itemSelectionChanged.connect(self.selectLayer)
+    self.wErase.clicked.connect(self.addErase)
+
+  def addErase(self):
+    if len(self.layer_list) == 0:
+      image_in = self.mod_in.image()
+      mask_in = np.zeros_like(self.mod_in.image()).astype(bool)
+    else:
+      image_in = self.layer_list[-1]['image_out']
+      mask_in = self.layer_list[-1]['mask_out']
+
+    erase_dict = {
+    'erase': True,
+    'image_in':image_in.copy(),
+    'image_out':image_in.copy(),
+    'mask_in':mask_in.copy(),
+    'mask_out':mask_in.copy()}
+
+    self.layer_list.append(erase_dict)
+    self.wFilterList.addItem('Erase %d'%self.wFilterList.count())
+    self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
+    self.selectLayer()
+
+  def erase(self,pos,radius=5):
+    selection = self.wFilterList.selectedItems()
+    if 'erase' in self._item.keys() and len(selection) > 0:
+      selection = selection[0]
+      row = self.wFilterList.row(selection)
+      if row == self.wFilterList.count() -1:
+        pos = [int(pos.x()), int(pos.y())]
+        a, b = pos[0],pos[1]
+        nx,ny = self._item['mask_in'].shape
+        radius = radius
+
+        x,y = np.ogrid[-a:nx-a, -b:ny-b]
+        mask = x*x + y*y <= radius**2
+        self._item['mask_out'][mask] = False
+        self.update_image()
+
 
   def addROI(self):
     roi = pg.ROI(
@@ -654,78 +707,102 @@ class FilterPattern(Modification):
       snapSize=2)
     roi.sigRegionChanged.connect(self.update_image)
     self.wImgBox_VB.addItem(roi)
-    if len(self.roi_list) == 0:
+    if len(self.layer_list) == 0:
       image_in = self.mod_in.image()
+      mask_in = np.zeros_like(self.mod_in.image()).astype(bool)
     else:
-      image_in = self.roi_list[-1]['image_out']
-    roi_dict = {'roi':roi,'threshold':100,'image_in':image_in.copy(),'image_out':image_in.copy()}
-    self.roi_list.append(roi_dict)
+      image_in = self.layer_list[-1]['image_out']
+      mask_in = self.layer_list[-1]['mask_out']
+    roi_dict = {
+    'roi':roi,
+    'threshold':100,
+    'mode': None,
+    'image_in':image_in.copy(),
+    'image_out':image_in.copy(),
+    'mask_in':mask_in.copy(),
+    'mask_out':mask_in.copy()}
+    self.layer_list.append(roi_dict)
     self.wFilterList.addItem('Filter %d'%self.wFilterList.count())
     self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
-    self.selectROI()
+    self.selectLayer()
 
-  def removeROI(self):
-    self.wImgBox_VB.removeItem(self.roi_list[-1]['roi'])
-    del self.roi_list[-1]
-    self.wFilterList.takeItem(self.wFilterList.count()-1)
-    self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
-    self.selectROI()
+  def removeLayer(self):
+    if len(self.layer_list) > 0:
+      if 'roi' in self.layer_list[-1].keys():
+        self.wImgBox_VB.removeItem(self.layer_list[-1]['roi'])
+      del self.layer_list[-1]
+      if len(self.layer_list) > 0:
+        self._item = self.layer_list[-1]
+      else:
+        self._item = None
+      self.wFilterList.takeItem(self.wFilterList.count()-1)
+      self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
+      self.selectLayer()
 
-  def selectROI(self):
+  def selectLayer(self):
     selection = self.wFilterList.selectedItems()
     if len(selection) == 1:
       selection = selection[0]
       row = self.wFilterList.row(selection)
-      self.roi_item = self.roi_list[row]
-      self.wImgROI.setImage(self.roi_item['image_in'],levels=(0,255))
-      roi = self.roi_item['roi']
-      self.wSizeSlider.setSliderPosition(int(roi.size()[0]/2))
-      self.wThreshSlider.setSliderPosition(self.roi_item['threshold'])
+      self._item = self.layer_list[row]
+      self.wImgROI.setImage(self._item['image_in'],levels=(0,255))
+      if 'roi' in self._item.keys():
+        roi = self._item['roi']
+        self.wSizeSlider.setSliderPosition(int(roi.size()[0]/2))
+        self.wThreshSlider.setSliderPosition(self._item['threshold'])
+        self.wImgBox_VB.setMouseEnabled(True,True)
+      else:
+        self.wImgBox_VB.setMouseEnabled(False,False)
+        roi = None
 
-      for r,ro in enumerate(self.roi_list):
-        if r != row:
-          ro['roi'].hide()
-        else:
-          ro['roi'].show()
+      for r,ro in enumerate(self.layer_list):
+        if 'roi' in ro.keys():
+          if r != row:
+            ro['roi'].hide()
+          else:
+            ro['roi'].show()
     else:
-      self.roi_item = None
+      self._item = None
 
     self.update_image()
 
   def update_image(self):
+    back_properties = self.back_properties()
+    if 'scale' in back_properties.keys():
+      self.scale = back_properties['scale']
     try:
-      if self.roi_item != None:
-        roi = self.roi_item['roi']
-        if 2*int(self.wSizeSlider.value()) != roi.size()[0]:
-          roi_size = 2*int(self.wSizeSlider.value())
-          roi.setSize([roi_size,roi_size])
-        
-        value = self.wComboBox.value()
-        region = roi.getArrayRegion(self.mod_in.image(),self.wImgROI)
-        region = region.astype(np.uint8)
-
-        self.roi_item['mask_idxs'] = np.zeros_like(self.mod_in.image()).astype(bool)
-
-        for i in range(4):
-          region = np.rot90(region,k=i)
-          x,y = region.shape
-          padded_image = cv2.copyMakeBorder(self.mod_in.image().copy(),int(y/2-1),int(y/2),int(x/2-1),int(x/2),cv2.BORDER_REFLECT_101)
-          res = cv2.matchTemplate(padded_image,region,self.method_dict[value])
+      if self._item != None:
+        if 'roi' in self._item.keys():
+          roi = self._item['roi']
+          if 2*int(self.wSizeSlider.value()) != roi.size()[0]:
+            roi_size = 2*int(self.wSizeSlider.value())
+            roi.setSize([roi_size,roi_size])
           
-          maxVal = res.flatten().max()
-          threshold = maxVal * np.logspace(-3,0,1000)[self.wThreshSlider.value()]
-          self.roi_item['mask_idxs'][res < threshold] = True
-        
-        self.img_out = self.roi_item['image_in'].copy()
-        self.img_out[self.roi_item['mask_idxs']] = 255
-        self.roi_item['image_out'] = self.img_out.copy()
-        self.wFilterAreaLabel.setNum(np.sum(self.roi_item['mask_idxs'])*self.scale**2)
+          self._item['mode'] = self.wComboBox.value()
+          region = roi.getArrayRegion(self.mod_in.image(),self.wImgROI)
+          region = region.astype(np.uint8)
+
+          self._item['mask_out'] = self._item['mask_in'].copy()
+          self._item['threshold'] = self.wThreshSlider.value()
+          for i in range(4):
+            region = np.rot90(region,k=i)
+            x,y = region.shape
+            padded_image = cv2.copyMakeBorder(self.mod_in.image(),int(y/2-1),int(y/2),int(x/2-1),int(x/2),cv2.BORDER_REFLECT_101)
+            res = cv2.matchTemplate(padded_image,region,self.method_dict[self._item['mode']])
+            
+            maxVal = res.flatten().max()
+            threshold = maxVal * np.logspace(-3,0,1000)[self._item['threshold']]
+            self._item['mask_out'][res < threshold] = True
+          
+        self.img_out = self.mod_in.image()
+        self.img_out[np.logical_not(self._item['mask_out'])] = 255
+        self._item['image_out'] = self.img_out.copy()
+        self.wFilterAreaLabel.setNum(np.sum(self._item['mask_out'])*self.scale**2)
         self.img_item.setImage(self.img_out,levels=(0,255))
 
-        roi_img = self.mod_in.image().copy()
+        roi_img = self.mod_in.image()
         roi_img = cv2.cvtColor(roi_img,cv2.COLOR_GRAY2BGR)
-        for r in self.roi_list:
-          roi_img[r['mask_idxs'],2] = 255
+        roi_img[self._item['mask_out'],:] = [0,0,255]
         self.wImgROI.setImage(roi_img)
 
     except Exception as e:
@@ -759,10 +836,8 @@ class Crop(Modification):
       size=(self.roi_size,self.roi_size),
       removable=True,
       pen=pg.mkPen(color='r',width=2),
-      maxBounds=self.wImgROI.boundingRect(),
-      scaleSnap=True,
-      snapSize=2)
-    self.roi.addScaleHandle(pos=(1,1),center=(0,0),lockAspect=True)
+      maxBounds=self.wImgROI.boundingRect(),)
+    self.roi.addScaleHandle(pos=(1,1),center=(0,0))
     self.wImgBox_VB.addItem(self.roi)
     self.roi.sigRegionChanged.connect(self.update_image)
 
@@ -783,17 +858,21 @@ class HoughTransform(Modification):
   def __init__(self,mod_in,img_item):
     super(HoughTransform,self).__init__(mod_in,img_item)
     self.inv_img = 255 - self.mod_in.image()
-    self.img_out = self.mod_in.image().copy()
+    self.img_out = self.mod_in.image()
     self.wLayout = pg.LayoutWidget()
     self.hspace,self.angles,self.distances = transform.hough_line(self.inv_img)
 
     self.wImgBox = pg.GraphicsLayoutWidget()
     self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
     self.wHough = pg.ImageItem()
-    self.wHough.setImage(self.hspace,levels=(0,255))
+    # self.wHough.setImage(self.hspace,levels=(0,255))
     self.wImgBox_VB.addItem(self.wHough)
     self.wImgBox_VB.setAspectLocked(True)
     self.wImgBox_VB.setMouseEnabled(False,False)
+
+    self.wHistPlot = pg.PlotWidget(title='Angular Difference Histogram')
+    self.wHistPlot.setXRange(0,180)
+    self.wHistPlot.hideAxis('left')
 
     self.wMinAngleSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wMinAngleSlider.setMinimum(5)
@@ -831,6 +910,7 @@ class HoughTransform(Modification):
     self.wLayout.addWidget(self.wLengthSlider,5,1)
     self.wLayout.addWidget(QtGui.QLabel('Minimum Gap Length:'),6,0)
     self.wLayout.addWidget(self.wGapSlider,6,1)
+    self.wLayout.addWidget(self.wHistPlot,7,0,2,2)
 
     self.wThreshSlider.valueChanged.connect(self.update_image)
     self.wMinAngleSlider.valueChanged.connect(self.update_image)
@@ -853,13 +933,23 @@ class HoughTransform(Modification):
       min_angle = self.min_angle,
       threshold = self.threshold)
 
+    angle_diffs = []
+    for i,a1 in enumerate(angles):
+      for j,a2 in enumerate(angles):
+        if i < j:
+          angle_diffs.append(abs(a1-a2)*180)
+    
+    y,x = np.histogram(angle_diffs,bins=np.linspace(0,180,180))
+    self.wHistPlot.clear()
+    self.wHistPlot.plot(x,y,stepMode=True,fillLevel=0,brush=(0,0,255,150))
+
     lines = transform.probabilistic_hough_line(
       self.inv_img,
       threshold=self.threshold,
       line_length=self.line_length,
       line_gap=self.line_gap)
 
-    bgr_hough = np.round(self.hspace/np.max(self.hspace)*255).astype(np.uint8)
+    bgr_hough = 255-np.round(self.hspace/np.max(self.hspace)*255).astype(np.uint8)
     bgr_hough = cv2.cvtColor(bgr_hough,cv2.COLOR_GRAY2BGR)
 
     for a,d in zip(angles,dists):
@@ -868,8 +958,9 @@ class HoughTransform(Modification):
       cv2.circle(bgr_hough,center=(angle_idx,dist_idx),radius=5,color=(0,0,255),thickness=-1)
 
     self.wHough.setImage(bgr_hough)
+    # self.wImgBox_VB.setRange(disableAutoRange=False)
     
-    bgr_img = self.mod_in.image().copy()
+    bgr_img = self.mod_in.image()
     bgr_img = cv2.cvtColor(bgr_img,cv2.COLOR_GRAY2BGR)
 
     for p1,p2 in lines:
@@ -888,32 +979,36 @@ class DomainCenters(Modification):
     super(DomainCenters,self).__init__(mod_in,img_item)
     self.roi_list = []
     self.properties['centers'] = []
+    self.scale = 1
+    self.img_out = self.mod_in.image()
     self.wLayout = pg.LayoutWidget()
 
     self.wImgBox = pg.GraphicsLayoutWidget()
     self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
-    self.wImgROI = pg.ImageItem()
-    self.wImgROI.setImage(self.img_item.image,levels=(0,255))
-    self.wImgBox_VB.addItem(self.wImgROI)
+    self.wImg = ImageItemCenters(self,self.img_out)
+    self.wImg.setImage(self.img_item.image,levels=(0,255))
+    self.wImgBox_VB.addItem(self.wImg)
     self.wImgBox_VB.setAspectLocked(True)
-    self.wImgBox_VB.setMouseEnabled(False,False)
+    # self.wImgBox_VB.setMouseEnabled(False,False)
+    self.wRemove = QtGui.QPushButton('Remove')
+    self.wDDLabel = QtGui.QLabel('0')
 
-    self.wLayout.addWidget(self.wImgBox,0,0)
-    self.wImgBox.scene().sigMouseClicked.connect(self.update_image)
+    self.wLayout.addWidget(self.wImgBox,0,0,4,3)
+    self.wLayout.addWidget(self.wRemove,5,0)
+    self.wLayout.addWidget(QtGui.QLabel('Domain Density:'),5,1)
+    self.wLayout.addWidget(self.wDDLabel,5,2)
+
+    self.wRemove.clicked.connect(self.wImg.removeCenter)
 
   def update_image(self):
-    pos = self.wImgBox_VB.mapSceneToView(self.wImgBox.lastMousePos)
-
-    roi = pg.CircleROI(pos,
-      [10,10],
-      pen=pg.mkPen(color='r',width=2),
-      maxBounds=self.wImgBox.boundingRect())
-    self.wImgBox_VB.addItem(roi)
-    handles = roi.getHandles()
-    for h in handles:
-      roi.removeHandle(h)
-    self.roi_list.append(roi)
-    print(self.wImgBox_VB.screenGeometry(),self.wImgBox_VB.mapFromViewToItem(self.wImgROI,pos))
+    back_properties = self.back_properties()
+    if 'scale' in back_properties.keys():
+      self.scale = back_properties['scale']
+    x,y = self.img_out.shape
+    area = x*y*self.scale**2
+    self.properties['domain_density'] = float(len(self.properties['centers']))/area
+    self.wDDLabel.setNum(self.properties['domain_density'])
+    return self.properties
 
   def widget(self):
     return self.wLayout
@@ -968,7 +1063,8 @@ class DrawScale(Modification):
     self.num_pixels = len(self.roi.getArrayRegion(self.mod_in.image(),self.img_item))
     self.wPixels.setNum(self.num_pixels)
     self.length = float(self.wLengthEdit.text())
-    self.scale = self.length / self.num_pixels
+    if self.num_pixels != 0:
+      self.scale = self.length / self.num_pixels
     self.wScale.setText(str(self.scale))
     self.properties['scale'] = self.scale
 
@@ -980,7 +1076,95 @@ class DrawScale(Modification):
   def name(self):
     return 'Draw Scale'
 
+class Erase(Modification):
+  def __init__(self,mod_in,img_item):
+    super(Erase,self).__init__(mod_in,img_item)
+    self.img_out = self.mod_in.image()
+    self.eraser_size = 10
+    self.wLayout = pg.LayoutWidget()
 
-app = QtGui.QApplication([])      
-img_analyzer = ImageAnalyzer()
-img_analyzer.run()
+    self.wImgBox = pg.GraphicsLayoutWidget()
+    self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
+    self.wImgROI = pg.ImageItem()
+    self.wImgROI.setImage(self.img_out,levels=(0,255))
+    self.wImgBox_VB.addItem(self.wImgROI)
+    self.wImgBox_VB.setAspectLocked(True)
+    
+    self.wSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wSizeSlider.setMinimum(1)
+    self.wSizeSlider.setMaximum(100)
+    self.wSizeSlider.setSliderPosition(self.eraser_size)
+
+    kern = (np.ones((self.eraser_size,self.eraser_size))*255).astype(np.uint8)
+    self.wImgROI.setDrawKernel(kern, mask=None, center=(int(self.eraser_size/2),int(self.eraser_size/2)), mode='set')
+    self.wSizeSlider.valueChanged.connect(self.update_image)
+   
+    self.wLayout.addWidget(QtGui.QLabel('Eraser Size:'),0,0)
+    self.wLayout.addWidget(self.wSizeSlider,0,1)
+    self.wLayout.addWidget(self.wImgBox,1,0,4,4)
+
+  def update_image(self):
+    self.eraser_size = int(self.wSizeSlider.value())
+    kern = (np.ones((self.eraser_size,self.eraser_size))*255).astype(np.uint8)
+    self.wImgROI.setDrawKernel(kern, mask=None, center=(int(self.eraser_size/2),int(self.eraser_size/2)), mode='set')
+    self.img_out = self.wImgROI.image
+    self.img_item.setImage(self.img_out,levels=(0,255))
+
+  def widget(self):
+    return self.wLayout
+
+  def name(self):
+    return 'Erase'
+
+class ImageItemCenters(pg.ImageItem):
+  def __init__(self,mod,img):
+    super(ImageItemCenters,self).__init__()
+    self.mod = mod
+    self.start_img = img.copy()
+    kern = (np.ones((2,2))*255).astype(np.uint8)
+    self.setDrawKernel(kern, mask=None, center=(int(1),int(1)), mode='set')
+  
+  def drawAt(self,pos,ev=None):
+    pos = [int(pos.x()), int(pos.y())]
+    self.drawCircle(pos)
+    self.mod.properties['centers'].append(pos)
+    self.updateImage()
+    self.mod.update_image()
+
+  def drawCircle(self,pos,radius=5):
+    a, b = pos[0],pos[1]
+    nx,ny = self.image.shape
+    radius = 5
+
+    x,y = np.ogrid[-a:nx-a, -b:ny-b]
+    mask = x*x + y*y <= radius**2
+
+    self.image[mask] = 255
+
+  def removeCenter(self):
+    if len(self.mod.properties['centers']) > 0: 
+      del self.mod.properties['centers'][-1]
+      self.image = self.start_img.copy()
+      for pos in self.mod.properties['centers']:
+        self.drawCircle(pos)
+      self.updateImage()
+      self.mod.update_image()
+
+  def mouseDragEvent(self,ev):
+    pass
+
+
+class ImageItemMask(pg.ImageItem):
+  def __init__(self,mod):
+    super(ImageItemMask,self).__init__()
+    self.mod = mod
+    kern = (np.ones((2,2))*255).astype(np.uint8)
+    self.setDrawKernel(kern, mask=None, center=(int(1),int(1)), mode='set')
+
+  def drawAt(self,pos,ev=None):
+    self.mod.erase(pos)
+
+if __name__ == '__main__':
+  app = QtGui.QApplication([])      
+  img_analyzer = ImageAnalyzer()
+  img_analyzer.run()
