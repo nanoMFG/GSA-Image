@@ -45,7 +45,8 @@ class ImageAnalyzer:
     'Crop': Crop,
     'Domain Centers': DomainCenters,
     'Hough Transform': HoughTransform,
-    'Erase': Erase
+    'Erase': Erase,
+    'Sobel Filter': SobelFilter
     }    
     
     self.wComboBox = pg.ComboBox()
@@ -829,7 +830,7 @@ class Crop(Modification):
     self.wImgROI.setImage(self.img_item.image,levels=(0,255))
     self.wImgBox_VB.addItem(self.wImgROI)
     self.wImgBox_VB.setAspectLocked(True)
-    self.wImgBox_VB.setMouseEnabled(False,False)
+    # self.wImgBox_VB.setMouseEnabled(False,False)
 
     self.roi = pg.ROI(
       pos=(0,0),
@@ -868,9 +869,9 @@ class HoughTransform(Modification):
     # self.wHough.setImage(self.hspace,levels=(0,255))
     self.wImgBox_VB.addItem(self.wHough)
     self.wImgBox_VB.setAspectLocked(True)
-    self.wImgBox_VB.setMouseEnabled(False,False)
+    # self.wImgBox_VB.setMouseEnabled(False,False)
 
-    self.wHistPlot = pg.PlotWidget(title='Angular Difference Histogram')
+    self.wHistPlot = pg.PlotWidget(title='Angle Histogram')
     self.wHistPlot.setXRange(0,180)
     self.wHistPlot.hideAxis('left')
 
@@ -933,13 +934,13 @@ class HoughTransform(Modification):
       min_angle = self.min_angle,
       threshold = self.threshold)
 
-    angle_diffs = []
-    for i,a1 in enumerate(angles):
-      for j,a2 in enumerate(angles):
-        if i < j:
-          angle_diffs.append(abs(a1-a2)*180)
+    # angle_diffs = []
+    # for i,a1 in enumerate(angles):
+    #   for j,a2 in enumerate(angles):
+    #     if i < j:
+    #       angle_diffs.append(abs(a1-a2)*180)
     
-    y,x = np.histogram(angle_diffs,bins=np.linspace(0,180,180))
+    y,x = np.histogram(np.array(angles)*180,bins=np.linspace(0,180,180))
     self.wHistPlot.clear()
     self.wHistPlot.plot(x,y,stepMode=True,fillLevel=0,brush=(0,0,255,150))
 
@@ -1116,6 +1117,53 @@ class Erase(Modification):
   def name(self):
     return 'Erase'
 
+class SobelFilter(Modification):
+  def __init__(self,mod_in,img_item):
+    super(SobelFilter,self).__init__(mod_in,img_item)
+    self.sobel_size = 3
+
+    self.wLayout = pg.LayoutWidget()
+
+    self.wSobelSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wSobelSizeSlider.setMinimum(1)
+    self.wSobelSizeSlider.setMaximum(3)
+    self.wSobelSizeSlider.setSliderPosition(1)
+
+    self.wHistPlot = pg.PlotWidget(title='Angle Histogram')
+    self.wHistPlot.setXRange(0,360)
+    self.wHistPlot.hideAxis('left')
+
+    self.wLayout.addWidget(QtGui.QLabel('Size:'),0,0)
+    self.wLayout.addWidget(self.wSobelSizeSlider,0,1)
+    self.wLayout.addWidget(self.wHistPlot,1,0,4,4)
+
+    self.wSobelSizeSlider.valueChanged.connect(self.update_image)
+
+    self.update_image()
+
+  def update_image(self):
+    self.sobel_size = 2*int(self.wSobelSizeSlider.value())+1
+
+    self.dx = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=1,dy=0,ksize=self.sobel_size)
+    self.dy = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=0,dy=1,ksize=self.sobel_size)
+
+    self.theta = np.arctan2(self.dy,self.dx)
+    self.magnitude = np.sqrt(self.dx**2+self.dy**2)
+    theta_flat = self.theta.flatten()*180
+    theta_flat = theta_flat[~np.isnan(theta_flat)]
+
+    y,x = np.histogram(theta_flat,bins=np.linspace(0,360,360))
+    self.wHistPlot.clear()
+    self.wHistPlot.plot(x,y,stepMode=True,fillLevel=0,brush=(0,0,255,150))
+
+    return self.properties
+
+  def widget(self):
+    return self.wLayout
+
+  def name(self):
+    return 'Sobel Filter'
+
 class ImageItemCenters(pg.ImageItem):
   def __init__(self,mod,img):
     super(ImageItemCenters,self).__init__()
@@ -1152,7 +1200,6 @@ class ImageItemCenters(pg.ImageItem):
 
   def mouseDragEvent(self,ev):
     pass
-
 
 class ImageItemMask(pg.ImageItem):
   def __init__(self,mod):
