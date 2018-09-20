@@ -1,6 +1,7 @@
 from __future__ import division
 import numpy as np
-import cv2, sys, time
+import scipy as sc
+import cv2, sys, time, pickle, json
 from skimage import transform
 from PyQt5 import QtGui, QtCore
 import pyqtgraph as pg
@@ -20,17 +21,10 @@ def slow_update(func, pause=0.3):
 
 class ImageAnalyzer:
   def __init__(self):
-    self.img_file_path = None
-    self.img_fname = None
-    self.img_data = None
     self.modifications = None
-    self.properties = {}
     self.selectedWidget = None
     
     self.w = QtGui.QWidget()
-    
-    self.wOpenFileBtn = QtGui.QPushButton('Open Image')
-    self.wOpenFileBtn.clicked.connect(self.openFile)    
 
     self.mod_dict = {
     'Color Mask': ColorMask,
@@ -53,11 +47,23 @@ class ImageAnalyzer:
     for item in sorted(list(self.mod_dict)):
       self.wComboBox.addItem(item)  
 
-    self.wAddMod = QtGui.QPushButton('Add Modification')
+    self.wOpenFileBtn = QtGui.QPushButton('Import Image')
+    self.wOpenFileBtn.clicked.connect(self.openFile)
+
+    self.wAddMod = QtGui.QPushButton('Add')
     self.wAddMod.clicked.connect(self.addMod)
 
-    self.wRemoveMod = QtGui.QPushButton('Remove Modification')
+    self.wRemoveMod = QtGui.QPushButton('Remove')
     self.wRemoveMod.clicked.connect(self.removeMod)
+
+    self.wExportImage = QtGui.QPushButton('Export Image')
+    self.wExportImage.clicked.connect(self.exportImage)
+
+    self.wExportState = QtGui.QPushButton('Export State')
+    self.wExportState.clicked.connect(self.exportState)
+
+    self.wImportState = QtGui.QPushButton('Import State')
+    self.wImportState.clicked.connect(self.importState)
     
     self.wModList = QtGui.QListWidget()
     self.wModList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
@@ -72,19 +78,56 @@ class ImageAnalyzer:
     # self.wImgBox_VB.setMouseEnabled(False,False)
     
     self.layout = QtGui.QGridLayout()
-    self.layout.setColumnStretch(0,10)
+    self.layout.setColumnStretch(0,30)
+    self.layout.setColumnStretch(1,30)
     self.layout.addWidget(self.wOpenFileBtn, 0,0)
-    self.layout.addWidget(self.wAddMod, 1,0)
-    self.layout.addWidget(self.wRemoveMod,2,0)
-    self.layout.addWidget(self.wComboBox, 3,0)
-    self.layout.addWidget(self.wModList,4,0)
-    self.layout.addWidget(self.wImgBox, 0,1,5,5)
+    self.layout.addWidget(self.wImportState, 0,1)
+    self.layout.addWidget(self.wModList,2,0,1,2)
+    self.layout.addWidget(self.wAddMod, 3,0)
+    self.layout.addWidget(self.wRemoveMod,3,1)
+    self.layout.addWidget(self.wComboBox,4,0,1,2)
+    self.layout.addWidget(self.wExportImage,5,0)
+    self.layout.addWidget(self.wExportState,5,1)
+    self.layout.addWidget(self.wImgBox,0,2,5,5)
     
     self.w.setLayout(self.layout)
   
+  def exportImage(self):
+    if self.modifications != None:
+      name = QtGui.QFileDialog.getSaveFileName()[0]
+      if name != '':
+        cv2.imwrite(name,self.modifications.image())
+
+  def exportState(self):
+    if self.modifications != None:
+      d = self.modifications.to_dict()
+      name = QtGui.QFileDialog.getSaveFileName()[0]
+      print(name)
+      if name != '':
+        with open(name,'w') as f:
+          json.dump(d,f)
+
+  def importState(self):
+    try:
+      file_path = QtGui.QFileDialog.getOpenFileName()
+      if isinstance(file_path,tuple):
+        file_path = file_path[0]
+      else:
+        return
+      with open(file_path,'r') as f:
+        state = json.load(f)
+    except:
+      return
+
+    cla = globals()[state['@class']]
+    self.modifications = cla.from_dict(state,self.wImgItem)
+    # self.selectedWidget = self.modifications.widget()
+    # self.layout.addWidget(,0,7,5,5,alignment=QtCore.Qt.AlignTop)
+    self.updateAll(self.modifications)
+
   def updateAll(self,mod):
     try:
-      self.properties.update(mod.update_image())
+      mod.update_view()
     except:
       pass
     self.updateModWidget(mod.widget())
@@ -110,7 +153,7 @@ class ImageAnalyzer:
       selection = selection[0]
       mod = self.modifications.back_traverse(self.wModList.count() - self.wModList.row(selection) - 1)
       try:
-        self.properties.update(mod.update_image())
+        mod.update_view()
       except:
         pass
       if self.wModList.row(selection) < self.wModList.count() - 1:
@@ -134,6 +177,7 @@ class ImageAnalyzer:
       pass
     elif self.modifications != None:
       mod = self.mod_dict[value](self.modifications,self.wImgItem)
+      # print(mod.__dict__)
       self.modifications = mod
       widget = mod.widget()
       self.layout.addWidget(widget,0,7,5,5,alignment=QtCore.Qt.AlignTop)
@@ -141,21 +185,21 @@ class ImageAnalyzer:
     
   def openFile(self):
     try:
-      self.img_file_path = QtGui.QFileDialog.getOpenFileName()
-      if isinstance(self.img_file_path,tuple):
-        self.img_file_path = self.img_file_path[0]
+      img_file_path = QtGui.QFileDialog.getOpenFileName()
+      if isinstance(img_file_path,tuple):
+        img_file_path = img_file_path[0]
       else:
         return
-      self.img_fname = self.img_file_path.split('/')[-1]
-      self.img_data = cv2.imread(self.img_file_path)
-      self.img_data = cv2.cvtColor(self.img_data, cv2.COLOR_RGB2GRAY)
+      img_fname = img_file_path.split('/')[-1]
+      img_data = cv2.imread(img_file_path)
+      img_data = cv2.cvtColor(img_data, cv2.COLOR_RGB2GRAY)
     
       mod = InitialImage(img_item=self.wImgItem)
-      mod.set_image(self.img_data)
+      mod.set_image(img_data)
       self.modifications = mod
       
       self.updateAll(mod)
-      self.w.setWindowTitle(self.img_fname)
+      self.w.setWindowTitle(img_fname)
     except:
       return
   
@@ -180,8 +224,12 @@ class Modification:
   def name(self):
     return 'Default Modification'
   def set_image(self,img):
-    self.img_out = img
+    self.img_out = img.astype(np.uint8)
   def update_image(self):
+    pass
+  def update_view(self):
+    self.update_image()
+    self.img_item.setImage(self.img_out,levels=(0,255))
     return self.properties
   def delete_mod(self):
     return self.mod_in
@@ -217,20 +265,46 @@ class Modification:
       d = {}
       d.update(self.properties)
       return d
-      
+  def to_dict(self):
+    d = {}
+    d['@module'] = self.__class__.__module__
+    d['@class'] = self.__class__.__name__
+    if self.mod_in != None:
+      d['mod_in'] = self.mod_in.to_dict()
+    else:
+      d['mod_in'] = None
+    d['properties'] = self.properties
+    return d
+  
+  @classmethod
+  def from_dict(cls,d,img_item):
+    if d['mod_in'] != None:
+      mod_in_dict = d['mod_in']
+      mod_in_cls = globals()[mod_in_dict['@class']]
+      mod_in = mod_in_cls.from_dict(mod_in_dict,img_item)
+    else:
+      mod_in = None
+    return cls(mod_in,img_item,d['properties'])
 
 class InitialImage(Modification):
   def widget(self):
     return None
-  def update_image(self):
-    self.img_item.setImage(self.img_out,levels=(0,255))
-    return self.properties
   def name(self):
     return 'Initial Image'
+  def to_dict(self):
+    d = super(InitialImage,self).to_dict()
+    d['img_out'] = self.img_out.tolist()
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(InitialImage,cls).from_dict(d,img_item)
+    obj.set_image(np.asarray(d['img_out']))
+    return obj
 
 class ColorMask(Modification):
-  def __init__(self,mod_in,img_item):
-    super(ColorMask,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(ColorMask,self).__init__(mod_in,img_item,properties)
     self.img_mask = None
     self.img_hist = self.img_item.getHistogram()
 
@@ -243,12 +317,26 @@ class ColorMask(Modification):
     self.wHistPlot.hideAxis('left')
     
     self.lrItem = pg.LinearRegionItem((0,255),bounds=(0,255))
-    self.lrItem.sigRegionChanged.connect(self.update_image)
-    self.lrItem.sigRegionChangeFinished.connect(self.update_image)
+    self.lrItem.sigRegionChanged.connect(self.update_view)
+    self.lrItem.sigRegionChangeFinished.connect(self.update_view)
     
     self.wHistPlot.addItem(self.lrItem)
     self.wHistPlot.setMouseEnabled(False,False)
     self.wHistPlot.setMaximumHeight(100)
+
+  def to_dict(self):
+    d = super(ColorMask,self).to_dict()
+    d['img_mask'] = self.img_mask.tolist()
+    d['LinearRegionItem'] = {'region':self.lrItem.getRegion()}
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(ColorMask,cls).from_dict(d,img_item)
+    obj.img_mask = np.asarray(d['img_mask'])
+    obj.lrItem.setRegion(d['LinearRegionItem']['region'])
+    obj.update_image()
+    return obj
   
   def widget(self):
     return self.wHistPlot
@@ -259,16 +347,13 @@ class ColorMask(Modification):
     self.img_mask = np.zeros_like(img)
     self.img_mask[np.logical_and(img>minVal,img<maxVal)] = 1
     self.img_out = img*self.img_mask+(1-self.img_mask)*255
-    self.img_item.setImage(self.img_out,levels=(0,255))
-
-    return self.properties
 
   def name(self):
     return 'Color Mask'    
 
 class CannyEdgeDetection(Modification):
-  def __init__(self,mod_in,img_item):
-    super(CannyEdgeDetection,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(CannyEdgeDetection,self).__init__(mod_in,img_item,properties)
     
     self.low_thresh = int(max(self.mod_in.image().flatten())*.1)
     self.high_thresh = int(max(self.mod_in.image().flatten())*.4)
@@ -312,6 +397,33 @@ class CannyEdgeDetection(Modification):
     self.wToolBox.addWidget(self.wLowSlider,2,0,1,2)
     self.wToolBox.addWidget(self.wHighSlider,4,0,1,2)
 
+  def to_dict(self):
+    d = super(CannyEdgeDetection,self).to_dict()
+    d['canny_inputs'] = {
+      'low_threshold': self.low_thresh,
+      'high_threshold': self.high_thresh,
+      'gaussian_size': self.gauss_size
+      }
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(CannyEdgeDetection,cls).from_dict(d,img_item)
+    obj.low_thresh = d['canny_inputs']['low_threshold']
+    obj.high_thresh = d['canny_inputs']['high_threshold']
+    obj.gauss_size = d['canny_inputs']['gaussian_size']
+
+    obj.wLowEdit.setText(str(obj.low_thresh))
+    obj.wHighEdit.setText(str(obj.high_thresh))
+    obj.wGaussEdit.setText(str(obj.gauss_size))
+
+    obj.wGaussEdit.setText(str(obj.gauss_size))
+    obj.wLowSlider.setSliderPosition(obj.low_thresh)
+    obj.wHighSlider.setSliderPosition(obj.high_thresh)
+
+    obj.update_image()
+    return obj
+
   def name(self):
     return 'Canny Edge Detection'
 
@@ -322,10 +434,10 @@ class CannyEdgeDetection(Modification):
     self.low_thresh = int(self.wLowEdit.text())
     self.high_thresh = int(self.wHighEdit.text())
 
-    self.wHighSlider.setSliderPosition(self.low_thresh)    
+    self.wLowSlider.setSliderPosition(self.low_thresh)    
     self.wHighSlider.setSliderPosition(self.high_thresh)
 
-    self.update_image()
+    self.update_view()
 
   def _update_texts(self):
     self.low_thresh = int(self.wLowSlider.value())
@@ -334,21 +446,18 @@ class CannyEdgeDetection(Modification):
     self.wLowEdit.setText(str(self.low_thresh))
     self.wHighEdit.setText(str(self.high_thresh))
 
-    self.update_image()
+    self.update_view()
 
   def update_image(self):
     self.img_out = cv2.GaussianBlur(self.mod_in.image(),(self.gauss_size,self.gauss_size),0)
     self.img_out = 255-cv2.Canny(self.img_out,self.low_thresh,self.high_thresh,L2gradient=True)
-    self.img_item.setImage(self.img_out,levels=(0,255))
-
-    return self.properties
   
   def widget(self):
     return self.wToolBox
 
 class Dilation(Modification):
-  def __init__(self,mod_in,img_item):
-    super(Dilation,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(Dilation,self).__init__(mod_in,img_item,properties)
     self.size = 1
     self.wToolBox = pg.LayoutWidget()
     self.wSizeEdit = QtGui.QLineEdit(str(self.size))
@@ -366,6 +475,18 @@ class Dilation(Modification):
     self.wToolBox.addWidget(QtGui.QLabel('Kernel Size'),0,0)
     self.wToolBox.addWidget(self.wSizeEdit,0,1)
     self.wToolBox.addWidget(self.wSizeSlider,1,0,1,2)
+
+  def to_dict(self):
+    d = super(Dilation,self).to_dict()
+    d['size'] = self.size
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(Dilation,cls).from_dict(d,img_item)
+    obj.size = d['size']
+    obj.update_image()
+    return obj
 
   def name(self):
     return 'Dilation'
@@ -373,25 +494,22 @@ class Dilation(Modification):
   def _update_sliders(self):
     self.size = int(self.wSizeEdit.text())
     self.wSizeSlider.setSliderPosition(self.size)
-    self.update_image()
+    self.update_view()
 
   def _update_texts(self):
     self.size = int(self.wSizeSlider.value())
     self.wSizeEdit.setText(str(self.size))
-    self.update_image()
+    self.update_view()
 
   def update_image(self):
     self.img_out = cv2.erode(self.mod_in.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
-    self.img_item.setImage(self.img_out,levels=(0,255))
-
-    return self.properties
 
   def widget(self):
     return self.wToolBox
 
 class Erosion(Modification):
-  def __init__(self,mod_in,img_item):
-    super(Erosion,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(Erosion,self).__init__(mod_in,img_item,properties)
     self.size = 1
     self.wToolBox = pg.LayoutWidget()
     self.wSizeEdit = QtGui.QLineEdit(str(self.size))
@@ -410,31 +528,50 @@ class Erosion(Modification):
     self.wToolBox.addWidget(self.wSizeEdit,0,1)
     self.wToolBox.addWidget(self.wSizeSlider,1,0,1,2)
 
+  def to_dict(self):
+    d = super(Erosion,self).to_dict()
+    d['size'] = self.size
+    return d
+
+  @classmethod
+  def from_dict(self,d,img_item):
+    obj = super(Erosion,cls).from_dict(d,img_item)
+    obj.size = d['size']
+    obj.update_image()
+    return obj
+
   def name(self):
     return 'Erosion'
 
   def _update_sliders(self):
     self.size = int(self.wSizeEdit.text())
     self.wSizeSlider.setSliderPosition(self.size)
-    self.update_image()
+    self.update_view()
 
   def _update_texts(self):
     self.size = int(self.wSizeSlider.value())
     self.wSizeEdit.setText(str(self.size))
-    self.update_image()
+    self.update_view()
 
   def update_image(self):
     self.img_out = cv2.dilate(self.mod_in.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
-    self.img_item.setImage(self.img_out,levels=(0,255))
-
-    return self.properties
 
   def widget(self):
     return self.wToolBox
 
 class BinaryMask(Modification):
-  def __init__(self,mod_in,img_item):
-    super(BinaryMask,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(BinaryMask,self).__init__(mod_in,img_item,properties)
+
+  def to_dict(self):
+    d = super(BinaryMask,self).to_dict()
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(BinaryMask,cls).from_dict(d,img_item)
+    obj.update_image()
+    return obj
 
   def name(self):
     return 'Binary Mask'
@@ -442,16 +579,13 @@ class BinaryMask(Modification):
   def update_image(self):
     self.img_out = self.mod_in.image()
     self.img_out[self.img_out < 255] = 0
-    self.img_item.setImage(self.img_out,levels=(0,255))
-
-    return self.properties
 
   def widget(self):
     return None
 
 class FindContours(Modification):
-  def __init__(self,mod_in,img_item):
-    super(FindContours,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(FindContours,self).__init__(mod_in,img_item,properties)
     self.wLayout = pg.LayoutWidget()
     self.img_inv = self.mod_in.image()
     self.img_inv[self.img_inv < 255] = 0
@@ -472,6 +606,7 @@ class FindContours(Modification):
     self.wHighEdit.setValidator(QtGui.QIntValidator(3,100))
     self.wHighEdit.setFixedWidth(60)
 
+    self.areaThresh = 0.5
     self.wThreshSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wThreshSlider.setMinimum(0)
     self.wThreshSlider.setMaximum(100)
@@ -498,8 +633,8 @@ class FindContours(Modification):
         self.contour_area_max = abs(self.contour_dict[key]['area'])
     self.update_tol()
 
-    self.wContourList.itemSelectionChanged.connect(self.update_image)
-    self.wContourList.itemClicked.connect(self.update_image)
+    self.wContourList.itemSelectionChanged.connect(self.update_view)
+    self.wContourList.itemClicked.connect(self.update_view)
     self.wTolEdit.returnPressed.connect(self.update_tol)
     self.wLowEdit.returnPressed.connect(self.update_tol)
     self.wHighEdit.returnPressed.connect(self.update_tol)
@@ -517,7 +652,32 @@ class FindContours(Modification):
     self.wLayout.addWidget(QtGui.QLabel('Contour Area Tolerance:'),5,0)
     self.wLayout.addWidget(self.wThreshSlider,6,0,1,3)
 
-    self.update_image()
+    self.update_view()
+
+  def to_dict(self):
+    d = super(FindContours,self).to_dict()
+    d['line_tolerance'] = self.tol
+    d['low_vertex_threshold'] = self.lowVert
+    d['high_vertex_threshold'] = self.highVert
+    d['contour_area_threshold'] = self.areaThresh
+    d['contours'] = self.contours
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(FindContours,cls).from_dict(d,img_item)
+    obj.tol = d['line_tolerance']
+    obj.lowVert = d['low_vertex_threshold']
+    obj.highVert = d['high_vertex_threshold']
+    obj.areaThresh = d['contour_area_threshold']
+
+    obj.wTolEdit.setText(str(obj.tol))
+    obj.wLowEdit.setText(str(obj.lowVert))
+    obj.wHighEdit.setText(str(obj.highVert))
+    obj.wThreshSlider.setText(str(obj.areaThresh))
+    obj.update_image()
+
+    return obj
 
   def update_image(self):
     self.img_out = self.mod_in.image()
@@ -526,9 +686,6 @@ class FindContours(Modification):
       cnt_key = selection[0].text()
       accept, approx = self.detect_poly(self.contour_dict[cnt_key]['contour'])
       cv2.drawContours(self.img_out,[approx],0,thickness=2,color=(0,255,0))
-    self.img_item.setImage(self.img_out,levels=(0,255))
-
-    return self.properties
 
   def detect_poly(self,cnt):
     peri = cv2.arcLength(cnt, True)
@@ -556,8 +713,8 @@ class FindContours(Modification):
     return 'Find Contours'
 
 class Blur(Modification):
-  def __init__(self,mod_in,img_item):
-    super(Blur,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(Blur,self).__init__(mod_in,img_item,properties)
     self.gauss_size = 5
     self.wLayout = pg.LayoutWidget()
     self.wGaussEdit = QtGui.QLineEdit(str(self.gauss_size))
@@ -567,18 +724,28 @@ class Blur(Modification):
     self.wLayout.addWidget(QtGui.QLabel('Gaussian Size'),0,0)
     self.wLayout.addWidget(self.wGaussEdit,1,0)
 
-    self.update_image()
-    self.wGaussEdit.returnPressed.connect(self.update_image)
+    self.update_view()
+    self.wGaussEdit.returnPressed.connect(self.update_view)
+
+  def to_dict(self):
+    d = super(Blur,self).to_dict()
+    d['gaussian_size'] = self.gauss_size
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(Blur,cls).from_dict(d,img_item)
+    obj.gauss_size = d['gaussian_size']
+    obj.wGaussEdit.setText(str(obj.gauss_size))
+    obj.update_image()
+
+    return obj
 
   def update_image(self):
     self.gauss_size = int(self.wGaussEdit.text())
     self.gauss_size = self.gauss_size + 1 if self.gauss_size % 2 == 0 else self.gauss_size
     self.wGaussEdit.setText(str(self.gauss_size))
-
     self.img_out = cv2.GaussianBlur(self.mod_in.image(),(self.gauss_size,self.gauss_size),0)
-    self.img_item.setImage(self.img_out,levels=(0,255))
-
-    return self.properties
 
   def widget(self):
     return self.wLayout
@@ -587,8 +754,8 @@ class Blur(Modification):
     return 'Blur'
 
 class FilterPattern(Modification):
-  def __init__(self,mod_in,img_item):
-    super(FilterPattern,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(FilterPattern,self).__init__(mod_in,img_item,properties)
     self.roi_size = 20
     self.scale = 1
     self.layer_list = []
@@ -598,9 +765,9 @@ class FilterPattern(Modification):
 
     self.wFilterList = QtGui.QListWidget()
     self.wFilterList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
-    self.wAdd = QtGui.QPushButton('Add Filter')
-    self.wRemove = QtGui.QPushButton('Remove Filter')
-    self.wErase = QtGui.QPushButton('Erase')
+    self.wAdd = QtGui.QPushButton('Add Pattern Filter')
+    self.wRemove = QtGui.QPushButton('Remove Layer')
+    self.wErase = QtGui.QPushButton('Add Erase')
 
     self.wImgBox = pg.GraphicsLayoutWidget()
     self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
@@ -636,6 +803,11 @@ class FilterPattern(Modification):
     self.wSizeSlider.setMaximum(50)
     self.wSizeSlider.setSliderPosition(5)
 
+    # self.wEraseSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    # self.wEraseSlider.setMinimum(5)
+    # self.wEraseSlider.setMaximum(50)
+    # self.wEraseSlider.setSliderPosition(5)
+
     self.wFilterAreaLabel = QtGui.QLabel('')
 
     self.wLayout.addWidget(QtGui.QLabel('Filter Method:'),0,0)
@@ -646,19 +818,31 @@ class FilterPattern(Modification):
     self.wLayout.addWidget(self.wSizeSlider,2,1,1,3)
     self.wLayout.addWidget(QtGui.QLabel('Filter Area:'),3,0)
     self.wLayout.addWidget(self.wFilterAreaLabel,3,1)
-    self.wLayout.addWidget(self.wImgBox,7,0,4,4)
-    self.wLayout.addWidget(self.wFilterList,4,0,3,3)
+    self.wLayout.addWidget(self.wImgBox,8,0,4,4)
+    self.wLayout.addWidget(self.wFilterList,4,0,4,3)
     self.wLayout.addWidget(self.wAdd,4,3)
-    self.wLayout.addWidget(self.wRemove,5,3)
-    self.wLayout.addWidget(self.wErase,6,3)
+    self.wLayout.addWidget(self.wRemove,6,3)
+    self.wLayout.addWidget(self.wErase,5,3)
 
-    self.wThreshSlider.valueChanged.connect(self.update_image)
-    self.wComboBox.currentIndexChanged.connect(self.update_image)
-    self.wSizeSlider.valueChanged.connect(self.update_image)
+    self.wThreshSlider.valueChanged.connect(self.update_view)
+    self.wComboBox.currentIndexChanged.connect(self.update_view)
+    self.wSizeSlider.valueChanged.connect(self.update_view)
     self.wAdd.clicked.connect(self.addROI)
     self.wRemove.clicked.connect(self.removeLayer)
     self.wFilterList.itemSelectionChanged.connect(self.selectLayer)
     self.wErase.clicked.connect(self.addErase)
+    # self.wEraseSlider.valueChanged.connect(self.update_view)
+  
+  def to_dict(self):
+    d = super(FilterPattern,self).to_dict()
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(FilterPattern,obj).from_dict(d,img_item)
+    obj.update_image()
+
+    return obj
 
   def addErase(self):
     if len(self.layer_list) == 0:
@@ -694,7 +878,7 @@ class FilterPattern(Modification):
         x,y = np.ogrid[-a:nx-a, -b:ny-b]
         mask = x*x + y*y <= radius**2
         self._item['mask_out'][mask] = False
-        self.update_image()
+        self.update_view()
 
 
   def addROI(self):
@@ -706,7 +890,7 @@ class FilterPattern(Modification):
       maxBounds=self.wImgROI.boundingRect(),
       scaleSnap=True,
       snapSize=2)
-    roi.sigRegionChanged.connect(self.update_image)
+    roi.sigRegionChanged.connect(self.update_view)
     self.wImgBox_VB.addItem(roi)
     if len(self.layer_list) == 0:
       image_in = self.mod_in.image()
@@ -765,10 +949,11 @@ class FilterPattern(Modification):
     else:
       self._item = None
 
-    self.update_image()
+    self.update_view()
 
-  def update_image(self):
+  def update_view(self):
     back_properties = self.back_properties()
+    self.eraser_size = int(self.wSizeSlider.value())
     if 'scale' in back_properties.keys():
       self.scale = back_properties['scale']
     try:
@@ -819,9 +1004,8 @@ class FilterPattern(Modification):
     return 'Filter Pattern'
 
 class Crop(Modification):
-  def __init__(self,mod_in,img_item):
-    super(Crop,self).__init__(mod_in,img_item)
-    self.roi_size = 20
+  def __init__(self,mod_in,img_item,properties={}):
+    super(Crop,self).__init__(mod_in,img_item,properties)
     self.wLayout = pg.LayoutWidget()
 
     self.wImgBox = pg.GraphicsLayoutWidget()
@@ -834,20 +1018,30 @@ class Crop(Modification):
 
     self.roi = pg.ROI(
       pos=(0,0),
-      size=(self.roi_size,self.roi_size),
+      size=(20,20),
       removable=True,
       pen=pg.mkPen(color='r',width=2),
       maxBounds=self.wImgROI.boundingRect(),)
     self.roi.addScaleHandle(pos=(1,1),center=(0,0))
     self.wImgBox_VB.addItem(self.roi)
-    self.roi.sigRegionChanged.connect(self.update_image)
+    self.roi.sigRegionChanged.connect(self.update_view)
 
     self.wLayout.addWidget(self.wImgBox,0,0)
+
+  def to_dict(self):
+    d = super(Crop,self).to_dict()
+    d['roi_state'] = self.roi.saveState()
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(Crop,cls).from_dict(d,img_item)
+    obj.roi.setState(d['roi_state'])
+    obj.update_image()
 
   def update_image(self):
     self.img_out = self.roi.getArrayRegion(self.wImgROI.image,self.wImgROI)
     self.img_out = self.img_out.astype(np.uint8)
-    self.img_item.setImage(self.img_out,levels=(0,255))
 
   def widget(self):
     return self.wLayout
@@ -856,19 +1050,30 @@ class Crop(Modification):
     return 'Crop'
 
 class HoughTransform(Modification):
-  def __init__(self,mod_in,img_item):
-    super(HoughTransform,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(HoughTransform,self).__init__(mod_in,img_item,properties)
     self.inv_img = 255 - self.mod_in.image()
     self.img_out = self.mod_in.image()
     self.wLayout = pg.LayoutWidget()
+    self.thresh_tick = 100
+    self.min_angle = 10
+    self.min_dist = 9
+    self.line_length = 50
+    self.line_gap = 10
     self.hspace,self.angles,self.distances = transform.hough_line(self.inv_img)
+
+    self.properties['hough_transform'] = {
+      'angles': self.angles,
+      'distances': self.distances,
+      'hspace': self.hspace
+    }
 
     self.wImgBox = pg.GraphicsLayoutWidget()
     self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
     self.wHough = pg.ImageItem()
     # self.wHough.setImage(self.hspace,levels=(0,255))
     self.wImgBox_VB.addItem(self.wHough)
-    self.wImgBox_VB.setAspectLocked(True)
+    # self.wImgBox_VB.setAspectLocked(True)
     # self.wImgBox_VB.setMouseEnabled(False,False)
 
     self.wHistPlot = pg.PlotWidget(title='Angle Histogram')
@@ -878,27 +1083,27 @@ class HoughTransform(Modification):
     self.wMinAngleSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wMinAngleSlider.setMinimum(5)
     self.wMinAngleSlider.setMaximum(180)
-    self.wMinAngleSlider.setSliderPosition(10)
+    self.wMinAngleSlider.setSliderPosition(self.min_angle)
     
     self.wMinDistSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wMinDistSlider.setMinimum(5)
     self.wMinDistSlider.setMaximum(200)
-    self.wMinDistSlider.setSliderPosition(9)
+    self.wMinDistSlider.setSliderPosition(self.min_dist)
 
     self.wThreshSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wThreshSlider.setMinimum(0)
     self.wThreshSlider.setMaximum(200)
-    self.wThreshSlider.setSliderPosition(100)
+    self.wThreshSlider.setSliderPosition(self.thresh_tick)
 
     self.wLengthSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wLengthSlider.setMinimum(10)
     self.wLengthSlider.setMaximum(200)
-    self.wLengthSlider.setSliderPosition(50)
+    self.wLengthSlider.setSliderPosition(self.line_length)
     
     self.wGapSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wGapSlider.setMinimum(5)
     self.wGapSlider.setMaximum(100)
-    self.wGapSlider.setSliderPosition(10)
+    self.wGapSlider.setSliderPosition(self.line_gap)
 
     self.wLayout.addWidget(QtGui.QLabel('Minimum Angle:'),0,0)
     self.wLayout.addWidget(self.wMinAngleSlider,0,1)
@@ -913,13 +1118,41 @@ class HoughTransform(Modification):
     self.wLayout.addWidget(self.wGapSlider,6,1)
     self.wLayout.addWidget(self.wHistPlot,7,0,2,2)
 
-    self.wThreshSlider.valueChanged.connect(self.update_image)
-    self.wMinAngleSlider.valueChanged.connect(self.update_image)
-    self.wMinDistSlider.valueChanged.connect(self.update_image)
-    self.wLengthSlider.valueChanged.connect(self.update_image)
-    self.wGapSlider.valueChanged.connect(self.update_image)
+    self.wThreshSlider.valueChanged.connect(self.update_view)
+    self.wMinAngleSlider.valueChanged.connect(self.update_view)
+    self.wMinDistSlider.valueChanged.connect(self.update_view)
+    self.wLengthSlider.valueChanged.connect(self.update_view)
+    self.wGapSlider.valueChanged.connect(self.update_view)
+
+  def to_dict(self):
+    d = super(HoughTransform,self).to_dict()
+    d['hough_line_peaks'] = {
+      'min_distance': self.min_dist,
+      'min_angle': self.min_angle,
+      'threshold': self.threshold
+    }
+    d['probabilistic_hough_line'] = {
+      'threshold': self.threshold,
+      'line_length': self.line_length,
+      'line_gap': self.line_gap
+    }
+    d['threshold_slider_tick'] = self.thresh_tick
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(HoughTransform,obj).from_dict(d,img_item)
+    obj.wMinAngleSlider.setText(str(d['hough_line_peaks']['min_angle']))
+    obj.wMinDistSlider.setText(str(d['hough_line_peaks']['min_distance']))
+    obj.wThreshSlider.setText(str(d['hough_line_peaks']['threshold']))
+    obj.wLengthSlider.setText(str(d['probabilistic_hough_line']['line_length']))
+    obj.wGapSlider.setText(str(d['probabilistic_hough_line']['line_gap']))
+    obj.update_image()
+
+    return obj
 
   def update_image(self):
+    self.thresh_tick = int(self.wThreshSlider.value())
     self.threshold = int(np.max(self.hspace)*self.wThreshSlider.value()/200)
     self.min_angle = int(self.wMinAngleSlider.value())
     self.min_dist = int(self.wMinDistSlider.value())
@@ -950,24 +1183,25 @@ class HoughTransform(Modification):
       line_length=self.line_length,
       line_gap=self.line_gap)
 
-    bgr_hough = 255-np.round(self.hspace/np.max(self.hspace)*255).astype(np.uint8)
-    bgr_hough = cv2.cvtColor(bgr_hough,cv2.COLOR_GRAY2BGR)
+    self.bgr_hough = 255-np.round(self.hspace/np.max(self.hspace)*255).astype(np.uint8)
+    self.bgr_hough = cv2.cvtColor(self.bgr_hough,cv2.COLOR_GRAY2BGR)
 
     for a,d in zip(angles,dists):
       angle_idx = np.nonzero(a == self.angles)[0]
       dist_idx = np.nonzero(d == self.distances)[0]
-      cv2.circle(bgr_hough,center=(angle_idx,dist_idx),radius=5,color=(0,0,255),thickness=-1)
-
-    self.wHough.setImage(bgr_hough)
-    # self.wImgBox_VB.setRange(disableAutoRange=False)
+      cv2.circle(self.bgr_hough,center=(angle_idx,dist_idx),radius=5,color=(0,0,255),thickness=-1)
     
-    bgr_img = self.mod_in.image()
-    bgr_img = cv2.cvtColor(bgr_img,cv2.COLOR_GRAY2BGR)
+    self.bgr_img = self.mod_in.image()
+    self.bgr_img = cv2.cvtColor(self.bgr_img,cv2.COLOR_GRAY2BGR)
 
     for p1,p2 in lines:
       cv2.line(bgr_img,p1,p2,color=(0,0,255),thickness=2)
 
-    self.img_item.setImage(bgr_img)
+  def update_view(self):
+    self.wHough.setImage(self.bgr_hough)
+    self.img_item.setImage(self.bgr_img)
+
+    return self.properties
 
   def widget(self):
     return self.wLayout
@@ -976,11 +1210,11 @@ class HoughTransform(Modification):
     return 'Hough Transform'
 
 class DomainCenters(Modification):
-  def __init__(self,mod_in,img_item):
-    super(DomainCenters,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(DomainCenters,self).__init__(mod_in,img_item,properties)
     self.roi_list = []
     self.properties['centers'] = []
-    self.scale = 1
+    self.properties['scale'] = 1
     self.img_out = self.mod_in.image()
     self.wLayout = pg.LayoutWidget()
 
@@ -1001,15 +1235,27 @@ class DomainCenters(Modification):
 
     self.wRemove.clicked.connect(self.wImg.removeCenter)
 
+  def to_dict(self):
+    d = super(DomainCenters,self).to_dict()
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(DomainCenters,obj).from_dict(d,img_item)
+    for pos in obj.properties['centers']:
+      obj.wImg.drawCircle(pos)
+    obj.update_image()
+
+    return obj
+
   def update_image(self):
     back_properties = self.back_properties()
     if 'scale' in back_properties.keys():
-      self.scale = back_properties['scale']
+      self.properties['scale'] = back_properties['scale']
     x,y = self.img_out.shape
-    area = x*y*self.scale**2
-    self.properties['domain_density'] = float(len(self.properties['centers']))/area
+    self.properties['total_area'] = x*y*self.properties['scale']**2
+    self.properties['domain_density'] = float(len(self.properties['centers']))/self.properties['total_area']
     self.wDDLabel.setNum(self.properties['domain_density'])
-    return self.properties
 
   def widget(self):
     return self.wLayout
@@ -1018,12 +1264,8 @@ class DomainCenters(Modification):
     return 'Domain Centers'
 
 class DrawScale(Modification):
-  def __init__(self,mod_in,img_item):
-    super(DrawScale,self).__init__(mod_in,img_item)
-    self.num_pixels = 1
-    self.length = 1
-    self.scale = 1
-    
+  def __init__(self,mod_in,img_item,properties={}):
+    super(DrawScale,self).__init__(mod_in,img_item,properties)
     self.wLayout = pg.LayoutWidget()
 
     self.wImgBox = pg.GraphicsLayoutWidget()
@@ -1032,7 +1274,7 @@ class DrawScale(Modification):
     self.wImgROI.setImage(self.img_item.image,levels=(0,255))
     self.wImgBox_VB.addItem(self.wImgROI)
     self.wImgBox_VB.setAspectLocked(True)
-    self.wImgBox_VB.setMouseEnabled(False,False)
+    # self.wImgBox_VB.setMouseEnabled(False,False)
 
     self.wPixels = QtGui.QLabel('1')
     self.wPixels.setFixedWidth(60)
@@ -1057,19 +1299,30 @@ class DrawScale(Modification):
 
     self.wLayout.addWidget(self.wImgBox,3,0,4,4)
 
-    self.roi.sigRegionChanged.connect(self.update_image)
-    self.wLengthEdit.returnPressed.connect(self.update_image)
+    self.roi.sigRegionChanged.connect(self.update_view)
+    self.wLengthEdit.returnPressed.connect(self.update_view)
+
+  def to_dict(self):
+    d = super(DrawScale,self).to_dict()
+    d['roi_state'] = self.roi.saveState()
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(DrawScale,cls).from_dict(d,img_item)
+    obj.roi.setState(d['roi_state'])
+    obj.wLengthEdit.setText(str(d['properties']['scale_length_um']))
+    obj.update_image()
+
+    return obj
 
   def update_image(self):
-    self.num_pixels = len(self.roi.getArrayRegion(self.mod_in.image(),self.img_item))
-    self.wPixels.setNum(self.num_pixels)
-    self.length = float(self.wLengthEdit.text())
+    self.properties['num_pixels'] = len(self.roi.getArrayRegion(self.mod_in.image(),self.img_item))
+    self.wPixels.setNum(self.properties['num_pixels'])
+    self.properties['scale_length_um'] = float(self.wLengthEdit.text())
     if self.num_pixels != 0:
-      self.scale = self.length / self.num_pixels
-    self.wScale.setText(str(self.scale))
-    self.properties['scale'] = self.scale
-
-    return self.properties
+      self.properties['scale'] = self.properties['scale_length_um'] / self.properties['num_pixels']
+    self.wScale.setText(str(self.properties['scale']))
 
   def widget(self):
     return self.wLayout
@@ -1078,8 +1331,8 @@ class DrawScale(Modification):
     return 'Draw Scale'
 
 class Erase(Modification):
-  def __init__(self,mod_in,img_item):
-    super(Erase,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(Erase,self).__init__(mod_in,img_item,properties)
     self.img_out = self.mod_in.image()
     self.eraser_size = 10
     self.wLayout = pg.LayoutWidget()
@@ -1098,18 +1351,31 @@ class Erase(Modification):
 
     kern = (np.ones((self.eraser_size,self.eraser_size))*255).astype(np.uint8)
     self.wImgROI.setDrawKernel(kern, mask=None, center=(int(self.eraser_size/2),int(self.eraser_size/2)), mode='set')
-    self.wSizeSlider.valueChanged.connect(self.update_image)
+    self.wSizeSlider.valueChanged.connect(self.update_view)
    
     self.wLayout.addWidget(QtGui.QLabel('Eraser Size:'),0,0)
     self.wLayout.addWidget(self.wSizeSlider,0,1)
     self.wLayout.addWidget(self.wImgBox,1,0,4,4)
+
+  def to_dict(self):
+    d = super(Erase,self).to_dict()
+    d['eraser_size'] = self.eraser_size
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(Erase,cls).from_dict(d,img_item)
+    obj.eraser_size = d['eraser_size']
+    obj.wSizeSlider.setSliderPosition(d['eraser_size'])
+    obj.update_image()
+
+    return obj
 
   def update_image(self):
     self.eraser_size = int(self.wSizeSlider.value())
     kern = (np.ones((self.eraser_size,self.eraser_size))*255).astype(np.uint8)
     self.wImgROI.setDrawKernel(kern, mask=None, center=(int(self.eraser_size/2),int(self.eraser_size/2)), mode='set')
     self.img_out = self.wImgROI.image
-    self.img_item.setImage(self.img_out,levels=(0,255))
 
   def widget(self):
     return self.wLayout
@@ -1118,8 +1384,8 @@ class Erase(Modification):
     return 'Erase'
 
 class SobelFilter(Modification):
-  def __init__(self,mod_in,img_item):
-    super(SobelFilter,self).__init__(mod_in,img_item)
+  def __init__(self,mod_in,img_item,properties={}):
+    super(SobelFilter,self).__init__(mod_in,img_item,properties)
     self.sobel_size = 3
 
     self.wLayout = pg.LayoutWidget()
@@ -1127,34 +1393,133 @@ class SobelFilter(Modification):
     self.wSobelSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
     self.wSobelSizeSlider.setMinimum(1)
     self.wSobelSizeSlider.setMaximum(3)
-    self.wSobelSizeSlider.setSliderPosition(1)
+    self.wSobelSizeSlider.setSliderPosition(2)
+
+    self.wMinLengthSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wMinLengthSlider.setMinimum(3)
+    self.wMinLengthSlider.setMaximum(10)
+    self.wMinLengthSlider.setSliderPosition(3)
+
+    self.wSNRSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wSNRSlider.setMinimum(1)
+    self.wSNRSlider.setMaximum(100)
+    self.wSNRSlider.setSliderPosition(20)
+
+    self.wNoisePercSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+    self.wNoisePercSlider.setMinimum(1)
+    self.wNoisePercSlider.setMaximum(99)
+    self.wNoisePercSlider.setSliderPosition(10)
 
     self.wHistPlot = pg.PlotWidget(title='Angle Histogram')
-    self.wHistPlot.setXRange(0,360)
+    self.wHistPlot.setXRange(0,180)
     self.wHistPlot.hideAxis('left')
+
+    self.wImgBox = pg.GraphicsLayoutWidget()
+    self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
+    self.wImg = pg.ImageItem()
+    self.wImgBox_VB.addItem(self.wImg)
+    # self.wImgBox_VB.setAspectLocked(True)
 
     self.wLayout.addWidget(QtGui.QLabel('Size:'),0,0)
     self.wLayout.addWidget(self.wSobelSizeSlider,0,1)
-    self.wLayout.addWidget(self.wHistPlot,1,0,4,4)
+    self.wLayout.addWidget(QtGui.QLabel('Minimum Ridge Length:'),1,0)
+    self.wLayout.addWidget(self.wMinLengthSlider,1,1)
+    self.wLayout.addWidget(QtGui.QLabel('Minimum SNR:'),2,0)
+    self.wLayout.addWidget(self.wSNRSlider,2,1)
+    self.wLayout.addWidget(QtGui.QLabel('Noise Percentile:'),3,0)
+    self.wLayout.addWidget(self.wNoisePercSlider,3,1)
+    self.wLayout.addWidget(self.wHistPlot,4,0,4,4)
+    self.wLayout.addWidget(self.wImgBox,8,0,4,4)
 
-    self.wSobelSizeSlider.valueChanged.connect(self.update_image)
+    self.wSobelSizeSlider.valueChanged.connect(self.update_view)
+    self.wMinLengthSlider.valueChanged.connect(self.update_view)
+    self.wSNRSlider.valueChanged.connect(self.update_view)
+    self.wNoisePercSlider.valueChanged.connect(self.update_view)
 
-    self.update_image()
+    self.update_view()
+
+  def to_dict(self):
+    d = super(SobelFilter,self).to_dict()
+    d['sobel'] = {
+      'ksize': self.sobel_size
+    }
+    d['find_peaks_cwt'] = {
+      'min_length': self.min_length,
+      'min_snr': self.snr,
+      'noise_perc': self.noise_perc
+    }
+    d['size_tick'] = int(self.wSobelSizeSlider.value())
+    d['snr_tick'] = int(self.wSNRSlider.value())
+    return d
+
+  @classmethod
+  def from_dict(cls,d,img_item):
+    obj = super(SobelFilter,cls).from_dict(d,img_item)
+    obj.sobel_size = d['sobel']['ksize']
+    obj.min_length = d['find_peaks_cwt']['min_length']
+    obj.snr = d['find_peaks_cwt']['min_snr']
+    obj.noise_perc = d['find_peaks_cwt']['noise_perc']
+
+    obj.wSobelSizeSlider.setSliderPosition(d['size_tick'])
+    obj.wMinLengthSlider.setSliderPosition(obj.min_length)
+    obj.wSNRSlider.setSliderPosition(d['snr_tick'])
+    obj.wNoisePercSlider[d['find_peaks_cwt']['noise_perc']]
+    obj.update_image()
+
+    return obj
 
   def update_image(self):
     self.sobel_size = 2*int(self.wSobelSizeSlider.value())+1
+    self.min_length = int(self.wMinLengthSlider.value())
+    self.snr = self.wSNRSlider.value()/20
+    self.noise_perc = int(self.wNoisePercSlider.value())
 
     self.dx = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=1,dy=0,ksize=self.sobel_size)
     self.dy = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=0,dy=1,ksize=self.sobel_size)
 
-    self.theta = np.arctan2(self.dy,self.dx)
-    self.magnitude = np.sqrt(self.dx**2+self.dy**2)
-    theta_flat = self.theta.flatten()*180
-    theta_flat = theta_flat[~np.isnan(theta_flat)]
+    self.properties['theta'] = np.arctan2(self.dy,self.dx)*180/np.pi
+    self.properties['magnitude'] = np.sqrt(self.dx**2+self.dy**2)
 
-    y,x = np.histogram(theta_flat,bins=np.linspace(0,360,360))
+    self.properties['angle_histogram'] = {}
+    self.properties['angle_histogram']['y'],self.properties['angle_histogram']['x'] = np.histogram(
+      self.properties['theta'].flatten(),
+      weights=self.properties['magnitude'].flatten(),
+      bins=np.linspace(0,180,180),
+      density=True)
+
     self.wHistPlot.clear()
-    self.wHistPlot.plot(x,y,stepMode=True,fillLevel=0,brush=(0,0,255,150))
+    self.wHistPlot.plot(
+      self.properties['angle_histogram']['x'],
+      self.properties['angle_histogram']['y'],
+      stepMode=True,
+      fillLevel=0,
+      brush=(0,0,255,150))
+
+    # self.fft = np.fft.fft(y)
+    # self.freq = np.fft.fftfreq(len(y))
+    # self.wFFT.clear()
+    # self.wFFT.plot(self.freq,self.fft.real,brush=(0,0,255,150))
+    # self.wFFT.plot(self.freq,self.fft.imag,brush=(0,255,0,150))
+
+    peaks = sc.signal.find_peaks_cwt(
+      self.properties['angle_histogram']['y'],
+      np.arange(1,10),
+      min_length=self.min_length,
+      min_snr=self.snr,
+      noise_perc=self.noise_perc)
+    
+    if len(peaks) > 0:
+      for p in self.properties['angle_histogram']['x'][peaks]:
+        self.wHistPlot.addLine(x=p)
+
+    self.cwt_array = sc.signal.cwt(
+      self.properties['angle_histogram']['y'],
+      sc.signal.ricker,
+      np.arange(1,10))
+
+  def update_view(self):
+    self.wImg.setImage(self.cwt_array.T)
+    self.img_item.setImage(self.magnitude)
 
     return self.properties
 
@@ -1177,7 +1542,7 @@ class ImageItemCenters(pg.ImageItem):
     self.drawCircle(pos)
     self.mod.properties['centers'].append(pos)
     self.updateImage()
-    self.mod.update_image()
+    self.mod.update_view()
 
   def drawCircle(self,pos,radius=5):
     a, b = pos[0],pos[1]
@@ -1196,7 +1561,7 @@ class ImageItemCenters(pg.ImageItem):
       for pos in self.mod.properties['centers']:
         self.drawCircle(pos)
       self.updateImage()
-      self.mod.update_image()
+      self.mod.update_view()
 
   def mouseDragEvent(self,ev):
     pass
@@ -1209,7 +1574,7 @@ class ImageItemMask(pg.ImageItem):
     self.setDrawKernel(kern, mask=None, center=(int(1),int(1)), mode='set')
 
   def drawAt(self,pos,ev=None):
-    self.mod.erase(pos)
+    self.mod.erase(pos,radius=self.mod.eraser_size)
 
 if __name__ == '__main__':
   app = QtGui.QApplication([])      
