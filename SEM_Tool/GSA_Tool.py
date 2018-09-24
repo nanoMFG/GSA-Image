@@ -126,14 +126,17 @@ class ImageAnalyzer:
     self.updateAll(self.modifications)
 
   def updateAll(self,mod):
-    try:
-      mod.update_view()
-    except:
-      pass
-    self.updateModWidget(mod.widget())
-    self.updateListBox(mod.mod_list())
-    if self.wModList.count() > 0:
-      self.wModList.setCurrentRow(self.wModList.count()-1)
+    if mod == None:
+      self.clear()
+    else:
+      try:
+        mod.update_view()
+      except:
+        pass
+      self.updateModWidget(mod.widget())
+      self.updateListBox(mod.mod_list())
+      if self.wModList.count() > 0:
+        self.wModList.setCurrentRow(self.wModList.count()-1)
 
   def updateModWidget(self,widget):
     if self.selectedWidget != None:
@@ -161,15 +164,17 @@ class ImageAnalyzer:
       else:
         self.updateModWidget(mod.widget())
 
+  def clear(self):
+    self.wImgItem.clear()
+    self.modifications = None
+    self.wModList.clear()
+
   def removeMod(self):
-    selection = self.wModList.selectedItems()
-    if len(selection) == 1 and self.modifications != None:
-      row = self.wModList.row(selection[0])
-      if row == self.wModList.count() - 1:
-        if self.modifications.widget() != None:
-          self.modifications.widget().hide()
-        self.modifications = self.modifications.mod_in
-        self.updateAll(self.modifications)
+    if self.modifications != None:
+      if self.modifications.widget() != None:
+        self.modifications.widget().hide()
+      self.modifications = self.modifications.mod_in
+      self.updateAll(self.modifications)
 
   def addMod(self):
     value = self.wComboBox.value()
@@ -1200,9 +1205,9 @@ class FilterPattern(Modification):
       if self.layer_list[-1]['layer'] == 'filter':
         self.wImgBox_VB.removeItem(self.layer_list[-1]['roi'])
       del self.layer_list[-1]
+      self.wFilterList.takeItem(self.wFilterList.count()-1)
       if len(self.layer_list) > 0:
         self._item = self.layer_list[-1]
-        self.wFilterList.takeItem(self.wFilterList.count()-1)
         self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
         self.selectLayer()
       else:
@@ -1243,8 +1248,10 @@ class FilterPattern(Modification):
     if 'scale' in back_properties.keys():
       self.scale = back_properties['scale']
     try:
+      self.img_out = self.mod_in.image()
+      self.roi_img = self.mod_in.image()
+      self.roi_img = cv2.cvtColor(self.roi_img,cv2.COLOR_GRAY2BGR)
       if self._item != None:
-        self.img_out = self.mod_in.image()
         if self._item['layer'] == 'filter':
           roi = self._item['roi']
           
@@ -1440,11 +1447,11 @@ class HoughTransform(Modification):
   @classmethod
   def from_dict(cls,d,img_item,layout):
     obj = super(HoughTransform,obj).from_dict(d,img_item,layout)
-    obj.wMinAngleSlider.setText(str(d['hough_line_peaks']['min_angle']))
-    obj.wMinDistSlider.setText(str(d['hough_line_peaks']['min_distance']))
-    obj.wThreshSlider.setText(str(d['hough_line_peaks']['threshold']))
-    obj.wLengthSlider.setText(str(d['probabilistic_hough_line']['line_length']))
-    obj.wGapSlider.setText(str(d['probabilistic_hough_line']['line_gap']))
+    obj.wMinAngleSlider.setSliderPosition(str(d['hough_line_peaks']['min_angle']))
+    obj.wMinDistSlider.setSliderPosition(str(d['hough_line_peaks']['min_distance']))
+    obj.wThreshSlider.setSliderPosition(str(d['hough_line_peaks']['threshold']))
+    obj.wLengthSlider.setSliderPosition(str(d['probabilistic_hough_line']['line_length']))
+    obj.wGapSlider.setSliderPosition(str(d['probabilistic_hough_line']['line_gap']))
     obj.update_image()
     layout.addWidget(obj.widget(),0,7,5,5,alignment=QtCore.Qt.AlignTop)
     obj.widget().hide()
