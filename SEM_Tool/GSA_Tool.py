@@ -1,7 +1,7 @@
 from __future__ import division
 import numpy as np
 import scipy as sc
-import cv2, sys, time, json, copy
+import cv2, sys, time, json, copy, subprocess, os
 from skimage import transform
 from PyQt5 import QtGui, QtCore
 import pyqtgraph as pg
@@ -20,9 +20,16 @@ def slow_update(func, pause=0.3):
   return wrapper
 
 class ImageAnalyzer:
-  def __init__(self):
+  def __init__(self,mode='local'):
+    self.mode = mode
     self.modifications = None
     self.selectedWidget = None
+
+    if self.mode == 'nanohub':
+      if 'TempGSA' not in os.listdir(os.getcwd()):
+        os.mkdir('TempGSA')
+      self.tempdir = os.path.join(os.getcwd(),'TempGSA')
+      os.chdir(self.tempdir)    
     
     self.w = QtGui.QWidget()
 
@@ -48,7 +55,7 @@ class ImageAnalyzer:
       self.wComboBox.addItem(item)  
 
     self.wOpenFileBtn = QtGui.QPushButton('Import Image')
-    self.wOpenFileBtn.clicked.connect(self.openFile)
+    self.wOpenFileBtn.clicked.connect(self.importImage)
 
     self.wAddMod = QtGui.QPushButton('Add')
     self.wAddMod.clicked.connect(self.addMod)
@@ -93,37 +100,105 @@ class ImageAnalyzer:
     self.w.setLayout(self.layout)
   
   def exportImage(self):
-    if self.modifications != None:
-      name = QtGui.QFileDialog.getSaveFileName()[0]
-      if name != '':
+    if self.mode == 'local':
+      if self.modifications != None:
+        name = QtGui.QFileDialog.getSaveFileName()[0]
+        if name != '':
+          cv2.imwrite(name,self.modifications.image())
+    elif self.mode == 'nanohub':
+      if self.modifications != None:
+        name = 'temp_%s.png'%int(time.time())
         cv2.imwrite(name,self.modifications.image())
+        subprocess.check_output('exportfile %s'%name,shell=True)
+        os.remove(name)
+    else:
+      return
 
   def exportState(self):
-    if self.modifications != None:
-      d = self.modifications.to_dict()
-      name = QtGui.QFileDialog.getSaveFileName()[0]
-      print(name)
-      if name != '':
+    if self.mode == 'local':
+      if self.modifications != None:
+        d = self.modifications.to_dict()
+        name = QtGui.QFileDialog.getSaveFileName()[0]
+        if name != '':
+          with open(name,'w') as f:
+            json.dump(d,f)
+    elif self.mode == 'nanohub':
+      if self.modifications != None:
+        d = self.modifications.to_dict()
+        name = 'temp_%s.json'%int(time.time())
         with open(name,'w') as f:
           json.dump(d,f)
+        subprocess.check_output('exportfile %s'%name,shell=True)
+        os.remove(name)
+    else:
+      return
 
   def importState(self):
-    try:
-      file_path = QtGui.QFileDialog.getOpenFileName()
-      if isinstance(file_path,tuple):
-        file_path = file_path[0]
-      else:
+    if self.mode == 'local':
+      try:
+        file_path = QtGui.QFileDialog.getOpenFileName()
+        if isinstance(file_path,tuple):
+          file_path = file_path[0]
+        else:
+          return
+        with open(file_path,'r') as f:
+          state = json.load(f)
+      except:
         return
-      with open(file_path,'r') as f:
-        state = json.load(f)
-    except:
+    elif self.mode == 'nanohub'
+      try:
+        file_path = subprocess.check_output('importfile',shell=True)
+        with open(file_path,'r') as f:
+          state = json.load(f)
+        os.remove(file_path)
+      except:
+        return
+    else:
       return
 
     cla = globals()[state['@class']]
     self.modifications = cla.from_dict(state,self.wImgItem,self.layout)
-    # self.selectedWidget = self.modifications.widget()
-    # self.layout.addWidget(,0,7,5,5,alignment=QtCore.Qt.AlignTop)
     self.updateAll(self.modifications)
+
+  def importImage(self):
+    if self.mode == 'local':
+      try:
+        img_file_path = QtGui.QFileDialog.getOpenFileName()
+        if isinstance(img_file_path,tuple):
+          img_file_path = img_file_path[0]
+        else:
+          return
+        img_fname = img_file_path.split('/')[-1]
+        img_data = cv2.imread(img_file_path)
+        img_data = cv2.cvtColor(img_data, cv2.COLOR_RGB2GRAY)
+      
+        mod = InitialImage(img_item=self.wImgItem)
+        mod.set_image(img_data)
+        self.modifications = mod
+        
+        self.updateAll(mod)
+        self.w.setWindowTitle(img_fname)
+      except:
+        return
+    elif self.mode == 'nanohub':
+      try:
+        img_file_path = subprocess.check_output('importfile',shell=True)
+        img_fname = img_file_path.split('/')[-1]
+        img_data = cv2.imread(img_file_path)
+        img_data = cv2.cvtColor(img_data, cv2.COLOR_RGB2GRAY)
+
+        os.remove(img_file_path)
+      
+        mod = InitialImage(img_item=self.wImgItem)
+        mod.set_image(img_data)
+        self.modifications = mod
+        
+        self.updateAll(mod)
+        self.w.setWindowTitle(img_fname)
+      except:
+        return
+    else:
+      return
 
   def updateAll(self,mod):
     if mod == None:
@@ -187,26 +262,6 @@ class ImageAnalyzer:
       widget = mod.widget()
       self.layout.addWidget(widget,0,7,5,5,alignment=QtCore.Qt.AlignTop)
       self.updateAll(mod)
-    
-  def openFile(self):
-    try:
-      img_file_path = QtGui.QFileDialog.getOpenFileName()
-      if isinstance(img_file_path,tuple):
-        img_file_path = img_file_path[0]
-      else:
-        return
-      img_fname = img_file_path.split('/')[-1]
-      img_data = cv2.imread(img_file_path)
-      img_data = cv2.cvtColor(img_data, cv2.COLOR_RGB2GRAY)
-    
-      mod = InitialImage(img_item=self.wImgItem)
-      mod.set_image(img_data)
-      self.modifications = mod
-      
-      self.updateAll(mod)
-      self.w.setWindowTitle(img_fname)
-    except:
-      return
   
   def run(self):
     self.w.show()
@@ -1909,6 +1964,12 @@ class ImageItemMask(pg.ImageItem):
     self.mod.erase(pos,radius=self.mod.eraser_size)
 
 if __name__ == '__main__':
+  if len(sys.argv) > 1:
+    mode = sys.argv[1]
+  else:
+    mode = 'local'
+  if mode not in ['nanohub','local']:
+    mode = 'local'
   app = QtGui.QApplication([])      
-  img_analyzer = ImageAnalyzer()
+  img_analyzer = ImageAnalyzer(mode=mode)
   img_analyzer.run()
