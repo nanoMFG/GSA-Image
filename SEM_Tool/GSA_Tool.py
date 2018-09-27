@@ -110,7 +110,7 @@ class ImageAnalyzer:
         name = 'temp_%s.png'%int(time.time())
         cv2.imwrite(name,self.modifications.image())
         subprocess.check_output('exportfile %s'%name,shell=True)
-        os.remove(name)
+        # os.remove(name)
     else:
       return
 
@@ -129,7 +129,7 @@ class ImageAnalyzer:
         with open(name,'w') as f:
           json.dump(d,f)
         subprocess.check_output('exportfile %s'%name,shell=True)
-        os.remove(name)
+        # os.remove(name)
     else:
       return
 
@@ -145,9 +145,9 @@ class ImageAnalyzer:
           state = json.load(f)
       except:
         return
-    elif self.mode == 'nanohub'
+    elif self.mode == 'nanohub':
       try:
-        file_path = subprocess.check_output('importfile',shell=True)
+        file_path = subprocess.check_output('importfile',shell=True).strip()
         with open(file_path,'r') as f:
           state = json.load(f)
         os.remove(file_path)
@@ -182,7 +182,7 @@ class ImageAnalyzer:
         return
     elif self.mode == 'nanohub':
       try:
-        img_file_path = subprocess.check_output('importfile',shell=True)
+        img_file_path = subprocess.check_output('importfile',shell=True).strip()
         img_fname = img_file_path.split('/')[-1]
         img_data = cv2.imread(img_file_path)
         img_data = cv2.cvtColor(img_data, cv2.COLOR_RGB2GRAY)
@@ -257,7 +257,6 @@ class ImageAnalyzer:
       pass
     elif self.modifications != None:
       mod = self.mod_dict[value](self.modifications,self.wImgItem)
-      # print(mod.__dict__)
       self.modifications = mod
       widget = mod.widget()
       self.layout.addWidget(widget,0,7,5,5,alignment=QtCore.Qt.AlignTop)
