@@ -143,15 +143,17 @@ class ImageAnalyzer:
           return
         with open(file_path,'r') as f:
           state = json.load(f)
-      except:
+      except Exception as e:
+        print(e)
         return
     elif self.mode == 'nanohub':
       try:
-        file_path = subprocess.check_output('importfile',shell=True).strip()
+        file_path = subprocess.check_output('importfile',shell=True).strip().decode("utf-8")
         with open(file_path,'r') as f:
           state = json.load(f)
         os.remove(file_path)
-      except:
+      except Exception as e:
+        print(e)
         return
     else:
       return
@@ -178,11 +180,12 @@ class ImageAnalyzer:
         
         self.updateAll(mod)
         self.w.setWindowTitle(img_fname)
-      except:
+      except Exception as e:
+        print(e)
         return
     elif self.mode == 'nanohub':
       try:
-        img_file_path = subprocess.check_output('importfile',shell=True).strip()
+        img_file_path = subprocess.check_output('importfile',shell=True).strip().decode("utf-8")
         img_fname = img_file_path.split('/')[-1]
         img_data = cv2.imread(img_file_path)
         img_data = cv2.cvtColor(img_data, cv2.COLOR_RGB2GRAY)
@@ -195,7 +198,8 @@ class ImageAnalyzer:
         
         self.updateAll(mod)
         self.w.setWindowTitle(img_fname)
-      except:
+      except Exception as e:
+        print(e)
         return
     else:
       return
