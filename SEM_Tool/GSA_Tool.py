@@ -268,7 +268,7 @@ class ImageAnalyzer:
   
   def run(self):
     self.w.show()
-    app.exec_()
+    sys.exit(app.exec_())
 
 class Modification:
   def __init__(self,mod_in=None,img_item=None,properties={}):
@@ -833,263 +833,13 @@ class Blur(Modification):
   def name(self):
     return 'Blur'
 
-class OldFilterPattern(Modification):
-  def __init__(self,mod_in,img_item,properties={}):
-    super(OldFilterPattern,self).__init__(mod_in,img_item,properties)
-    self.roi_size = 20
-    self.scale = 1
-    self.layer_list = []
-    self._item = None
-
-    self.wLayout = pg.LayoutWidget()
-
-    self.wFilterList = QtGui.QListWidget()
-    self.wFilterList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
-    self.wAdd = QtGui.QPushButton('Add Pattern Filter')
-    self.wRemove = QtGui.QPushButton('Remove Layer')
-    self.wErase = QtGui.QPushButton('Add Erase')
-
-    self.wImgBox = pg.GraphicsLayoutWidget()
-    self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
-    self.wImgROI = ImageItemMask(self)
-    self.wImgROI.setImage(self.img_item.image,levels=(0,255))
-    self.wImgBox_VB.addItem(self.wImgROI)
-    self.wImgBox_VB.setAspectLocked(True)
-
-    self.wComboBox = pg.ComboBox()
-    self.wComboBox.addItem('TM_SQDIFF')
-    self.wComboBox.addItem('TM_SQDIFF_NORMED')
-    self.wComboBox.addItem('TM_CCORR')
-    self.wComboBox.addItem('TM_CCORR_NORMED')
-    self.wComboBox.addItem('TM_CCOEFF')
-    self.wComboBox.addItem('TM_CCOEFF_NORMED')
-
-    self.method_dict = {
-      'TM_SQDIFF': cv2.TM_SQDIFF,
-      'TM_SQDIFF_NORMED': cv2.TM_SQDIFF_NORMED,
-      'TM_CCORR': cv2.TM_CCORR,
-      'TM_CCORR_NORMED': cv2.TM_CCORR_NORMED,
-      'TM_CCOEFF': cv2.TM_CCOEFF,
-      'TM_CCOEFF_NORMED': cv2.TM_CCOEFF_NORMED
-    }
-
-    self.wThreshSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-    self.wThreshSlider.setMinimum(1)
-    self.wThreshSlider.setMaximum(1000)
-    self.wThreshSlider.setSliderPosition(100)
-
-    self.wSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-    self.wSizeSlider.setMinimum(2)
-    self.wSizeSlider.setMaximum(50)
-    self.wSizeSlider.setSliderPosition(5)
-
-    # self.wEraseSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-    # self.wEraseSlider.setMinimum(5)
-    # self.wEraseSlider.setMaximum(50)
-    # self.wEraseSlider.setSliderPosition(5)
-
-    self.wFilterAreaLabel = QtGui.QLabel('')
-
-    self.wLayout.addWidget(QtGui.QLabel('Filter Method:'),0,0)
-    self.wLayout.addWidget(self.wComboBox,0,1,1,2)
-    self.wLayout.addWidget(QtGui.QLabel('Threshold:'),1,0)
-    self.wLayout.addWidget(self.wThreshSlider,1,1,1,3)
-    self.wLayout.addWidget(QtGui.QLabel('ROI Size:'),2,0)
-    self.wLayout.addWidget(self.wSizeSlider,2,1,1,3)
-    self.wLayout.addWidget(QtGui.QLabel('Filter Area:'),3,0)
-    self.wLayout.addWidget(self.wFilterAreaLabel,3,1)
-    self.wLayout.addWidget(self.wImgBox,8,0,4,4)
-    self.wLayout.addWidget(self.wFilterList,4,0,4,3)
-    self.wLayout.addWidget(self.wAdd,4,3)
-    self.wLayout.addWidget(self.wRemove,6,3)
-    self.wLayout.addWidget(self.wErase,5,3)
-
-    self.wThreshSlider.valueChanged.connect(self.update_view)
-    self.wComboBox.currentIndexChanged.connect(self.update_view)
-    self.wSizeSlider.valueChanged.connect(self.update_view)
-    self.wAdd.clicked.connect(self.addROI)
-    self.wRemove.clicked.connect(self.removeLayer)
-    self.wFilterList.itemSelectionChanged.connect(self.selectLayer)
-    self.wErase.clicked.connect(self.addErase)
-    # self.wEraseSlider.valueChanged.connect(self.update_view)
-  
-  # def to_dict(self):
-  #   d = super(FilterPattern,self).to_dict()
-  #   return d
-
-  # @classmethod
-  # def from_dict(cls,d,img_item,layout):
-  #   obj = super(FilterPattern,obj).from_dict(d,img_item,layout)
-  #   obj.update_image()
-  #   layout.addWidget(obj.widget(),0,7,5,5,alignment=QtCore.Qt.AlignTop)
-  #   obj.widget().hide()
-
-  #   return obj
-
-  def addErase(self):
-    if len(self.layer_list) == 0:
-      image_in = self.mod_in.image()
-      mask_in = np.zeros_like(self.mod_in.image()).astype(bool)
-    else:
-      image_in = self.layer_list[-1]['image_out']
-      mask_in = self.layer_list[-1]['mask_out']
-
-    erase_dict = {
-    'erase': True,
-    'image_in':image_in.copy(),
-    'image_out':image_in.copy(),
-    'mask_in':mask_in.copy(),
-    'mask_out':mask_in.copy()}
-
-    self.layer_list.append(erase_dict)
-    self.wFilterList.addItem('Erase %d'%self.wFilterList.count())
-    self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
-    self.selectLayer()
-
-  def erase(self,pos,radius=5):
-    selection = self.wFilterList.selectedItems()
-    if 'erase' in self._item.keys() and len(selection) > 0:
-      selection = selection[0]
-      row = self.wFilterList.row(selection)
-      if row == self.wFilterList.count() -1:
-        pos = [int(pos.x()), int(pos.y())]
-        a, b = pos[0],pos[1]
-        nx,ny = self._item['mask_in'].shape
-        radius = radius
-
-        x,y = np.ogrid[-a:nx-a, -b:ny-b]
-        mask = x*x + y*y <= radius**2
-        self._item['mask_out'][mask] = False
-        self.update_view()
-
-  def addROI(self):
-    roi = pg.ROI(
-      pos=(0,0),
-      size=(self.roi_size,self.roi_size),
-      removable=True,
-      pen=pg.mkPen(color='r',width=2),
-      maxBounds=self.wImgROI.boundingRect(),
-      scaleSnap=True,
-      snapSize=2)
-    roi.sigRegionChanged.connect(self.update_view)
-    self.wImgBox_VB.addItem(roi)
-    if len(self.layer_list) == 0:
-      image_in = self.mod_in.image()
-      mask_in = np.zeros_like(self.mod_in.image()).astype(bool)
-    else:
-      image_in = self.layer_list[-1]['image_out']
-      mask_in = self.layer_list[-1]['mask_out']
-    roi_dict = {
-    'roi':roi,
-    'threshold':100,
-    'mode': None,
-    'image_in':image_in.copy(),
-    'image_out':image_in.copy(),
-    'mask_in':mask_in.copy(),
-    'mask_out':mask_in.copy()}
-    self.layer_list.append(roi_dict)
-    self.wFilterList.addItem('Filter %d'%self.wFilterList.count())
-    self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
-    self.selectLayer()
-
-  def removeLayer(self):
-    if len(self.layer_list) > 0:
-      if 'roi' in self.layer_list[-1].keys():
-        self.wImgBox_VB.removeItem(self.layer_list[-1]['roi'])
-      del self.layer_list[-1]
-      if len(self.layer_list) > 0:
-        self._item = self.layer_list[-1]
-      else:
-        self._item = None
-      self.wFilterList.takeItem(self.wFilterList.count()-1)
-      self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
-      self.selectLayer()
-
-  def selectLayer(self):
-    selection = self.wFilterList.selectedItems()
-    if len(selection) == 1:
-      selection = selection[0]
-      row = self.wFilterList.row(selection)
-      self._item = self.layer_list[row]
-      self.wImgROI.setImage(self._item['image_in'],levels=(0,255))
-      if 'roi' in self._item.keys():
-        roi = self._item['roi']
-        self.wSizeSlider.setSliderPosition(int(roi.size()[0]/2))
-        self.wThreshSlider.setSliderPosition(self._item['threshold'])
-        self.wImgBox_VB.setMouseEnabled(True,True)
-      else:
-        self.wImgBox_VB.setMouseEnabled(False,False)
-        roi = None
-
-      for r,ro in enumerate(self.layer_list):
-        if 'roi' in ro.keys():
-          if r != row:
-            ro['roi'].hide()
-          else:
-            ro['roi'].show()
-    else:
-      self._item = None
-
-    self.update_view()
-
-  def update_view(self):
-    back_properties = self.back_properties()
-    self.eraser_size = int(self.wSizeSlider.value())
-    if 'scale' in back_properties.keys():
-      self.scale = back_properties['scale']
-    try:
-      if self._item != None:
-        if 'roi' in self._item.keys():
-          roi = self._item['roi']
-          if 2*int(self.wSizeSlider.value()) != roi.size()[0]:
-            roi_size = 2*int(self.wSizeSlider.value())
-            roi.setSize([roi_size,roi_size])
-          
-          self._item['mode'] = self.wComboBox.value()
-          region = roi.getArrayRegion(self.mod_in.image(),self.wImgROI)
-          region = region.astype(np.uint8)
-
-          self._item['mask_out'] = self._item['mask_in'].copy()
-          self._item['threshold'] = self.wThreshSlider.value()
-          for i in range(4):
-            rot_region = np.rot90(region,k=i)
-            x,y = region.shape
-            padded_image = cv2.copyMakeBorder(self.mod_in.image(),int(y/2-1),int(y/2),int(x/2-1),int(x/2),cv2.BORDER_REFLECT_101)
-            res = cv2.matchTemplate(padded_image,rot_region,self.method_dict[self._item['mode']])
-            
-            maxVal = res.flatten().max()
-            threshold = maxVal * np.logspace(-3,0,1000)[self._item['threshold']]
-            self._item['mask_out'][res < threshold] = True
-          
-        self.img_out = self.mod_in.image()
-        self.img_out[np.logical_not(self._item['mask_out'])] = 255
-        self._item['image_out'] = self.img_out.copy()
-        self.wFilterAreaLabel.setNum(np.sum(self._item['mask_out'])*self.scale**2)
-        self.img_item.setImage(self.img_out,levels=(0,255))
-
-        roi_img = self.mod_in.image()
-        roi_img = cv2.cvtColor(roi_img,cv2.COLOR_GRAY2BGR)
-        roi_img[self._item['mask_out'],:] = [0,0,255]
-        self.wImgROI.setImage(roi_img)
-
-    except Exception as e:
-      print('Error on line {}'.format(sys.exc_info()[-1].tb_lineno), type(e).__name__, e)
-
-    return self.properties
-
-
-  def widget(self):
-    return self.wLayout
-
-  def name(self):
-    return 'Filter Pattern'
-
 class FilterPattern(Modification):
   def __init__(self,mod_in,img_item,properties={}):
     super(FilterPattern,self).__init__(mod_in,img_item,properties)
     self.roi_size = 20
     self.scale = 1
     self.layer_list = []
+    self.hover_mask = np.zeros_like(self.mod_in.image()).astype(np.uint8)
     self._item = None
 
     self.wLayout = pg.LayoutWidget()
@@ -1134,11 +884,6 @@ class FilterPattern(Modification):
     self.wSizeSlider.setMaximum(50)
     self.wSizeSlider.setSliderPosition(5)
 
-    # self.wEraseSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-    # self.wEraseSlider.setMinimum(5)
-    # self.wEraseSlider.setMaximum(50)
-    # self.wEraseSlider.setSliderPosition(5)
-
     self.wFilterAreaLabel = QtGui.QLabel('')
     self.wFilterScaleLabel = QtGui.QLabel('')
 
@@ -1165,7 +910,6 @@ class FilterPattern(Modification):
     self.wRemove.clicked.connect(self.removeLayer)
     self.wFilterList.itemSelectionChanged.connect(self.selectLayer)
     self.wErase.clicked.connect(self.addErase)
-    # self.wEraseSlider.valueChanged.connect(self.update_view)
   
   def to_dict(self):
     d = super(FilterPattern,self).to_dict()
@@ -1284,9 +1028,7 @@ class FilterPattern(Modification):
           self.wComboBox.setValue(self._item['mode'])
         self.wSizeSlider.setSliderPosition(int(roi.size()[0]/2))
         self.wThreshSlider.setSliderPosition(self._item['threshold'])
-        # self.wImgBox_VB.setMouseEnabled(True,True)
       else:
-        # self.wImgBox_VB.setMouseEnabled(False,False)
         roi = None
 
       for r,ro in enumerate(self.layer_list):
@@ -1330,7 +1072,10 @@ class FilterPattern(Modification):
           self._item['mask'][res < threshold] = True
 
         self.mask_total = np.zeros_like(self.img_out).astype(bool)
-        for layer in self.layer_list:
+        selection = self.wFilterList.selectedItems()
+        selection = selection[0]
+        row = self.wFilterList.row(selection)
+        for layer in self.layer_list[:row+1]:
           if layer['layer'] == 'filter':
             self.mask_total[layer['mask']] = True
           elif layer['layer'] == 'erase':
@@ -1340,6 +1085,8 @@ class FilterPattern(Modification):
         self.roi_img = cv2.cvtColor(self.roi_img,cv2.COLOR_GRAY2BGR)
         self.img_out[np.logical_not(self.mask_total)] = 255
         self.roi_img[self.mask_total,:] = [0,0,255]
+        if self._item['layer']=='erase':
+          self.roi_img[self.hover_mask.astype(bool),:] = [0,255,0]
 
         self.properties['masked_area_um2'] = float(np.sum(self.mask_total)*self.scale**2)
         self.properties['mask_total'] = self.mask_total.tolist()
@@ -1794,29 +1541,15 @@ class SobelFilter(Modification):
 
     self.wStd = QtGui.QLabel('')
 
-    # self.wImgBox = pg.GraphicsLayoutWidget()
-    # self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
-    # self.wImg = pg.ImageItem()
-    # self.wImgBox_VB.addItem(self.wImg)
-    # self.wImgBox_VB.setAspectLocked(True)
-
     self.wLayout.addWidget(QtGui.QLabel('Size:'),0,0)
     self.wLayout.addWidget(self.wSobelSizeSlider,0,1)
-    # self.wLayout.addWidget(QtGui.QLabel('Minimum Ridge Length:'),1,0)
-    # self.wLayout.addWidget(self.wMinLengthSlider,1,1)
-    # self.wLayout.addWidget(QtGui.QLabel('Minimum SNR:'),2,0)
-    # self.wLayout.addWidget(self.wSNRSlider,2,1)
-    # self.wLayout.addWidget(QtGui.QLabel('Noise Percentile:'),3,0)
-    # self.wLayout.addWidget(self.wNoisePercSlider,3,1)
+
     self.wLayout.addWidget(self.wHistPlot,4,0,4,4)
     self.wLayout.addWidget(self.wConvPlot,8,0,4,4)
-    self.wLayout.addWidget(QtGui.QLabel('St. Dev.:'),12,0)
+    self.wLayout.addWidget(QtGui.QLabel('Shifted St. Dev.:'),12,0)
     self.wLayout.addWidget(self.wStd,12,1)
 
     self.wSobelSizeSlider.valueChanged.connect(self.update_view)
-    # self.wMinLengthSlider.valueChanged.connect(self.update_view)
-    # self.wSNRSlider.valueChanged.connect(self.update_view)
-    # self.wNoisePercSlider.valueChanged.connect(self.update_view)
 
     self.update_view()
 
@@ -1825,27 +1558,15 @@ class SobelFilter(Modification):
     d['sobel'] = {
       'ksize': self.sobel_size
     }
-    # d['find_peaks_cwt'] = {
-    #   'min_length': self.min_length,
-    #   'min_snr': self.snr,
-    #   'noise_perc': self.noise_perc
-    # }
     d['size_tick'] = int(self.wSobelSizeSlider.value())
-    # d['snr_tick'] = int(self.wSNRSlider.value())
     return d
 
   @classmethod
   def from_dict(cls,d,img_item,layout):
     obj = super(SobelFilter,cls).from_dict(d,img_item,layout)
     obj.sobel_size = d['sobel']['ksize']
-    # obj.min_length = d['find_peaks_cwt']['min_length']
-    # obj.snr = d['find_peaks_cwt']['min_snr']
-    # obj.noise_perc = d['find_peaks_cwt']['noise_perc']
 
     obj.wSobelSizeSlider.setSliderPosition(d['size_tick'])
-    # obj.wMinLengthSlider.setSliderPosition(obj.min_length)
-    # obj.wSNRSlider.setSliderPosition(d['snr_tick'])
-    # obj.wNoisePercSlider[d['find_peaks_cwt']['noise_perc']]
     obj.update_image()
     layout.addWidget(obj.widget(),0,7,5,5,alignment=QtCore.Qt.AlignTop)
     obj.widget().hide()
@@ -1854,9 +1575,6 @@ class SobelFilter(Modification):
 
   def update_image(self):
     self.sobel_size = 2*int(self.wSobelSizeSlider.value())+1
-    self.min_length = int(self.wMinLengthSlider.value())
-    self.snr = self.wSNRSlider.value()/20
-    self.noise_perc = int(self.wNoisePercSlider.value())
 
     self.dx = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=1,dy=0,ksize=self.sobel_size)
     self.dy = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=0,dy=1,ksize=self.sobel_size)
@@ -1877,31 +1595,23 @@ class SobelFilter(Modification):
     comb[-1] = 1
     self.convolution = sc.signal.convolve(self.properties['angle_histogram']['y'],comb,mode='valid')
     self.convolution = self.convolution/sum(self.convolution)
-    self.mean = np.average(range(len(self.convolution)),weights=self.convolution)
-    self.var = np.average((np.arange(len(self.convolution))-self.mean)**2,weights=self.convolution)
+    cos = np.average(np.cos(np.arange(len(self.convolution))*2*np.pi/60),weights=self.convolution)
+    sin = np.average(np.sin(np.arange(len(self.convolution))*2*np.pi/60),weights=self.convolution)
+    self.periodic_mean = np.round((np.arctan2(-sin,-cos)+np.pi)*60/2/np.pi).astype(int)
+    self.convolution = np.roll(self.convolution,30-self.periodic_mean)
+    self.periodic_var = np.average((np.arange(len(self.convolution))-30)**2,weights=self.convolution)
 
     self.properties['convolution'] = self.convolution
-    # peaks = sc.signal.find_peaks_cwt(
-    #   self.properties['angle_histogram']['y'],
-    #   np.arange(1,10),
-    #   min_length=self.min_length,
-    #   min_snr=self.snr,
-    #   noise_perc=self.noise_perc)
-    
-    # if len(peaks) > 0:
-    #   for p in self.properties['angle_histogram']['x'][peaks]:
-    #     self.wHistPlot.addLine(x=p)
-
-    # self.cwt_array = sc.signal.cwt(
-    #   self.properties['angle_histogram']['y'],
-    #   sc.signal.ricker,
-    #   np.arange(1,10))
+    self.properties['periodic_var'] = self.periodic_var
 
   def update_view(self):
     self.update_image()
     self.img_item.setImage(self.properties['magnitude'])
     self.wConvPlot.clear()
     self.wConvPlot.plot(range(len(self.convolution)),self.convolution)
+    self.wConvPlot.addLine(x=30)
+    self.wConvPlot.addLine(x=30-np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5]))
+    self.wConvPlot.addLine(x=30+np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5]))
     self.wHistPlot.clear()
     self.wHistPlot.plot(
       self.properties['angle_histogram']['x'],
@@ -1909,7 +1619,7 @@ class SobelFilter(Modification):
       stepMode=True,
       fillLevel=0,
       brush=(0,0,255,150))
-    self.wStd.setNum(np.sqrt(self.var))
+    self.wStd.setNum(np.sqrt(self.periodic_var))
 
     return self.properties
 
@@ -1965,6 +1675,18 @@ class ImageItemMask(pg.ImageItem):
 
   def drawAt(self,pos,ev=None):
     self.mod.erase(pos,radius=self.mod.eraser_size)
+
+  def hoverEvent(self,ev):
+    super(ImageItemMask,self).hoverEvent(ev)
+    self.mod.hover_mask = np.zeros_like(self.mod.hover_mask,dtype=np.uint8)
+    if self.mod._item != None and not ev.isExit():
+      if self.mod._item['layer']=='erase':
+        pos = ev.pos()
+        nx,ny = self.mod.hover_mask.shape
+        a, b = int(pos.x()), int(pos.y())
+        cv2.circle(self.mod.hover_mask,(b,a),self.mod.eraser_size,1,3)
+        
+    slow_update(self.mod.update_view())
 
 if __name__ == '__main__':
   if len(sys.argv) > 1:
