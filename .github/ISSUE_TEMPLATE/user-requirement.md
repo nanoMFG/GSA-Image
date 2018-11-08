@@ -1,5 +1,5 @@
 ---
-name: user story requirement
+name: user requirement
 about: Enter high level user requirements
 
 ---
