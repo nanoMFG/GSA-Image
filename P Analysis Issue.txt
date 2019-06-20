@@ -1,1 +1,0 @@
-The issue is that P clearly has 2 peaks in the histogram, put the code is only finding one peak, which is throwing off the analysis
