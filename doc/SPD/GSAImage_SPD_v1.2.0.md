@@ -4,35 +4,39 @@
 ### Target Release: 1.2.0 : July 31, 2019
 
 ## Development Team
-<!-- Complete table for all team members 
+<!-- Complete table for all team members
  roles: PI, developer, validation
  status: active, inactive
 -->
 Name | Role | github user | nanohub user | email | status
 ---|---|---|---|---|---
 Elif Ertekin | PI | elifleaf | Elif Ertekin | ertekin@illinois.edu | active
-Sameh Tawfick | PI | --- | --- | tawfick@illinois.edu | active
+Sameh Tawfick | PI | tawfick | --- | tawfick@illinois.edu | active
 Joshua Schiller | developer | jaschil2 | Joshua A Schiller | jaschil2@illinois.edu | active
 Kevin Liu | developer | kevindl2 | --- | kevindl2@illinois.edu | inactive
 Darren Adams | developer | dadamsncsa | Darren K Adams | dadams@illinois.edu | active
-Bomsaerah Seong | developer | --- | --- | bseong2@illinois.edu | active
+Bomsaerah Seong | developer | bsrseong | --- | bseong2@illinois.edu | active
 Kevin Cruse | developer | kevcruse96 | Kevin James Cruse | kevcruse96@gmail.com | active
 
 
 **nanoMFG Github Team(s):** @GSA-dev
+
 **nanoHUB Group(s):** Gr-ResQ
 
 ## 1. Introduction
 <!-- A  concise description of the current iteration of work. -->
+GSAImage allows users to extract relevant data from SEM images using various analysis techniques. The current iteration of the tool will include improvements in processing speed, cosmetics, and documentation on available analysis techniques. 
 
 ### 1.1 Purpose and Vision Statement
 <!--Why are we building this tool? What is the key benefit? How does it relate to existing tools and existing software? How does it fit into the overall objectives for the nanoMFG node? Who will use it?-->
+SEM images are one of the primary resources for graphene synthesis analysis. GSAImage will permit users to extract information from these SEM images like graphene coverage, domain density, and domain alignment. These features will inform users and augment machine learning on the data by providing it with objective metrics to optimize. This tool will be released as a standalone research tool and as a feature of the "gresq" graphene synthesis database dashboard. 
 
 ### 1.2 References
 <!--List any documents or background material that are relevant.  Links are useful. For instance, a link to a wiki or readme page in the project repository, or link to a uploaded file (doc, pdf, ppt, etc.).-->
 
 ## 2 Overview and Major Planned Features
 <!--Provide and overview characterising this proposed release.  Describe how users will interact with each proposed feature.-->
+Version 1.2.0 of GSAImage will include features related to user experience as well as improved scientific analysis of SEM images. In addition, a user manual with intuitive screenshots will be included for user instruction.  
 
 ### 2.1 Product Background and Strategic Fit
 <!--Provide context for the proposed product.  Is this a completely new projects, or next version of an existing project? This can include a description of any contextual research, or the status of any existing prototype application.  If this SPD describes a component, describe its relationship to larger system. Can include diagrams.-->
@@ -44,27 +48,49 @@ Kevin Cruse | developer | kevcruse96 | Kevin James Cruse | kevcruse96@gmail.com 
 #### Release Notes v#.#.#
 ##### Planned Features
 
+[Saving/Uploading](https://github.com/nanoMFG/GSA-Image/issues/19#issue-364979479 "Saving/Uploading")
+
+[Domain edge detection](https://github.com/nanoMFG/GSA-Image/issues/10#issuecomment-425507964 "Domain edge detection")
+
+[Domain coverage](https://github.com/nanoMFG/GSA-Image/issues/13#issuecomment-425508872 "Domain coverage")
+
+[Domain center determination](https://github.com/nanoMFG/GSA-Image/issues/15#issuecomment-425509516 "Domain center determination")
+
+[Exportation of domain coverage features](https://github.com/nanoMFG/GSA-Image/issues/16#issuecomment-425509882 "Exportation of domain coverage features")
+
 ##### Not Done
 
 ### 2.3 Scope and Limitations for Subsequent Releases
 <!--Short summary of  future envisioned roadmap for subsequent efforts.-->
+Further work needs to be done to speed up custom masks for the template matching tool. The alignment tool needs to be fleshed out a little more.
 
 ### 2.3 Operating Environment
 <!--Describe the target environment.  Identify components or application that are needed.  Describe technical infrastructure need to support the application.-->
+Program uses pyqt in the python environment
+
 
 ### 2.4 Design and Implementation Constraints
 <!--This could include pre-existing code that needs to be incorporated ,a certain programming language or toolkit and software dependencies.  Describe the origin and rationale for each constraint.-->
+* skimage
+* opencv
+* scipy
+* numpy
+* pyqtgraph
 
 ## 3 User Interaction and Design
 
 ### 3.1 Classes of Users
-<!--Identify classes (types) of users that you anticipate will use the product.  Provide any relevant context about each class that may influence how the product is used: 
+<!--Identify classes (types) of users that you anticipate will use the product.  Provide any relevant context about each class that may influence how the product is used:
 The tasks the class of users will perform
 Access and privilege level
 Features used
 Experience level
 Type of interaction
 Provide links to any user surveys, questionnaires, interviews, feedback or other relevant information.-->
+Type | Access Level | Features Used | Experience Level | Type of Interaction
+---|---|---|---|---
+Community User | All | All | Novice | Used for own research
+nanoMFG User | All | All | Experienced | Used for generating data for Gr-ResQ database
 
 ### 3.2 User Requirements
 <!-- Provide a list of issue links to document the main set of user requirements to be satisfied by this release.  Use the user requirement template to draft thense issues.  A well written user requirement should be easy to justify (Rational) and should be testable.  List in order of priority as must have, should have or nice to have for each use case. -->
@@ -87,5 +113,4 @@ Provide links to any user surveys, questionnaires, interviews, feedback or other
 
 ### 4.4 Uncertainty Quantification
 <!--Identify and document possible sources of uncertainty. Categorize with standard labels, such as parametric, structural, algorithmic, experimental, interpolation.
-
 Develop a plan for measuring and documenting uncertainty, e.g., using forward propagation or inverse UQ, and showing it in the application, if applicable.-->
