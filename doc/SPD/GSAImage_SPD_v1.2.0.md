@@ -42,7 +42,7 @@ Version 1.2.0 of GSAImage will include features related to user experience as we
 ### 2.1 Product Background and Strategic Fit
 <!--Provide context for the proposed product.  Is this a completely new projects, or next version of an existing project? This can include a description of any contextual research, or the status of any existing prototype application.  If this SPD describes a component, describe its relationship to larger system. Can include diagrams.-->
 
-![Gr-ResQ Tool Flow (SEM Image Tool Highlighted)](gresq_flow.png)
+![Gr-ResQ Tool Flow (SEM Image Tool Highlighted)](file:///Users/kevcruse96/Desktop/nanoMFG/SPDs/gresq_flow.png)
 
 This release of GSAImage represents the next version of an already published nanoHUB tool. This version of GSAImage will also be included as an analysis feature with the Gr-ResQ database tool suite. Flow for the component tools in the Gr-ResQ tool suite is shown above. The SEM image analysis tool is included as an analysis feature to study SEM images associated with various graphene recipes.
 
