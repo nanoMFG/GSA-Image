@@ -2,8 +2,8 @@ from setuptools import find_packages, setup
 
 
 setup(
-    name='GrResQ',
-    version='0.1dev',
+    name='gsaimage',
+    version='1.2.0-beta',
     long_description=open('README.md').read(),
     package_dir={'': 'src'},
     packages=find_packages(where='src'),
