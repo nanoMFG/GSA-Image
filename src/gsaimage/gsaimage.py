@@ -1,4 +1,5 @@
 from __future__ import division
+from math import sqrt
 import numpy as np
 import scipy as sc
 import cv2, sys, time, json, copy, subprocess, os
@@ -1066,19 +1067,140 @@ class FilterPattern(Modification):
 		self.wFilterList.setCurrentRow(self.wFilterList.count()-1)
 		self.selectLayer()
 
-	def customFilter(self, pos, radius = 5):
+	# @param pos - Current position of mouse.
+	# @param drawing - Is the mouse button held down?
+	# @param lastPos - Last recorded position of mouse.
+	# @param radius - Determines size of drawn object.
+	def customFilter(self, pos, lastPos, radius = 5):
 		selection = self.wFilterList.selectedItems()
 		if self._item['layer'] == 'custom' and len(selection) > 0:
 			selection = selection[0]
 			row = self.wFilterList.row(selection)
 			if row == self.wFilterList.count() - 1:
-				pos = [int(pos.x()), int (pos.y())]
-				a, b = pos[0], pos[1]
-				nx, ny = self._item['mask'].shape
 
-				x, y = np.ogrid[-a:nx-a, -b:ny-b]
-				mask = x*x + y*y <= radius**2
-				self._item['mask'][mask] = True
+				if ( lastPos != None ):
+					# Change meshgrid?
+					# Create Line
+					prevPt = [int(lastPos.x()), int(lastPos.y())]
+					c, d = prevPt[0], prevPt[1]
+
+					pos = [int(pos.x()), int (pos.y())]
+					a, b = pos[0], pos[1]
+
+					nx, ny = self._item['mask'].shape
+					# We want to draw a rectangle from prevPt to pos.
+					# Shift the meshgrid to the left by c and up by d
+					x, y = np.ogrid[-c:nx-c, -d:ny-d]
+
+					# We shouldn't need to draw a circle on prevPt
+
+					# How to draw a rectangle?
+					# Find line between two points
+					# Remember the meshgrid is centered on (c,d)
+					# y = mx
+					# m is slope: (d - b)/(c - a)
+
+					slopeUndefined = False
+					m = 0
+					unitVec = [0, 0]
+					if ( c - a == 0 ):
+						slopeUndefined = True
+						unitVec = [0, 1]
+					else :
+						m = (d - b)/(c - a)
+						mag1 = sqrt(1*1 + m*m)
+						unitVec = [1/mag1, m/mag1]
+
+					# Find line perpendicular to line between two points
+					vecPerp = [0, 0]
+					if ( slopeUndefined ):
+						vecPerp = [1, 0]
+					elif ( m == 0 ):
+						vecPerp = [0, 1]
+					else:
+						m_perp = -1/m
+						mag2 = sqrt(1*1 + m_perp*m_perp)
+						vecPerp = [1/mag2, m_perp/mag2]
+
+
+					corner1 = [ -radius*vecPerp[0], -radius*vecPerp[1] ]
+					corner2 = [ radius*vecPerp[0], radius*vecPerp[1] ]
+
+					corner3 = [ (a - c) - radius*vecPerp[0], (b - d) - radius*vecPerp[1] ]
+					corner4 = [ (a - c) + radius*vecPerp[0], (b - d) + radius*vecPerp[1] ]
+
+					# Draw a circle on mouse position
+					mask = (x - (a - c))**2 + (y - (b - d))**2 <= radius**2
+
+					# Draw the rectangle
+					if ( vecPerp == [0, 1] ):
+						if ( a > c ):
+							# is mask changed in-place?
+							mask = np.logical_and(np.logical_or(mask, np.logical_and(x >= 0, x <= (a - c))), np.logical_and(y >= -radius, y <= radius))
+							# mask = mask or ( x >= 0 and x <= (a - c) ) and ( y >= -radius and y <= radius )
+						else:
+							mask = np.logical_and(np.logical_or(mask, np.logical_and(x >= (a - c), x <= 0)), np.logical_and(y >= -radius, y <= radius))
+							# mask = mask or ( x >= (a - c) and x <= 0 ) and ( y >= -radius and y <= radius )
+
+
+					elif ( vecPerp == [1, 0] ):
+						mask = np.logical_or(mask, np.logical_and(x >= -radius, x <= radius))
+						# mask = mask or ( x >= -radius and x <= radius )
+						if ( b > d ):
+							mask = np.logical_and(mask, np.logical_and(y >= 0, y <= (b - d)))
+							# mask = mask and ( y >= 0 and y <= (b - d) )
+						else:
+							mask = np.logical_and(mask, np.logical_and(y >= (b - d), y <= 0))
+							# mask = mask and ( y >= (b - d) and y <= 0 )
+
+					else:
+						# Define the sides of the rectangle in point-slope form
+						# y - corner1[1] == m*(x - corner1[0])
+						if ( corner2[1] - corner1[1] > m*( corner2[0] - corner1[0] ) ):
+							mask = np.logical_or(mask, y - corner1[1] > m*(x - corner1[0]))
+							# mask = mask or ( y - corner1[1] > m*(x - corner1[0]) )
+						else:
+							mask = np.logical_or(mask, y - corner1[1] < m*(x - corner1[0]))
+							# mask = mask or ( y - corner1[1] < m*(x - corner1[0]) )
+
+						# y - corner2[1] == m*(x - corner2[0])
+						if ( corner1[1] - corner2[1] > m*( corner1[0] - corner2[0] ) ):
+							mask = np.logical_and(mask, (y - corner2[1]) > m*(x - corner2[0]))
+							# mask = mask and ( (y - corner2[1]) > m*(x - corner2[0]) )
+						else:
+							mask = np.logical_and(mask, (y - corner2[1]) < m*(x - corner2[0]))
+							# mask = mask and ( (y - corner2[1]) < m*(x - corner2[0]) )
+
+						# y - corner1[1] == m_perp*(x - corner1[0])
+						if ( corner3[1] - corner1[1] > m_perp*( corner3[0] - corner1[0] ) ):
+							mask = np.logical_and(mask, (y - corner1[1]) > m_perp*(x - corner1[0]))
+							# mask = mask and ( (y - corner1[1]) > m_perp*(x - corner1[0]) )
+						else:
+							mask = np.logical_and(mask, (y - corner1[1]) < m_perp*(x - corner1[0]))
+							# mask = mask and ( (y - corner1[1]) < m_perp*(x - corner1[0]) )
+
+						# y - corner3[1] == m_perp*(x - corner3[0])
+						if ( corner1[1] - corner3[1] > m_perp*(corner1[0] - corner3[0]) ):
+							mask = np.logical_and(mask, (y - corner3[1]) > m_perp*(x - corner3[0]))
+							# mask = mask and ( (y - corner3[1]) > m_perp*(x - corner3[0]) )
+						else:
+							mask = np.logical_and(mask, (y - corner3[1]) < m_perp*(x - corner3[0]))
+							# mask = mask and ( (y - corner3[1]) < m_perp*(x - corner3[0]) )
+
+					self._item['mask'][mask] = True
+
+
+				else :
+					pos = [int(pos.x()), int (pos.y())]
+					a, b = pos[0], pos[1]
+					nx, ny = self._item['mask'].shape
+					x, y = np.ogrid[-a:nx-a, -b:ny-b]
+
+					# Creates Circle
+					mask = x*x + y*y <= radius**2
+					self._item['mask'][mask] = True
+
+
 				slow_update(self.update_view())
 
 	def addROI(self):
@@ -1808,12 +1930,56 @@ class ImageItemMask(pg.ImageItem):
 		kern = (np.ones((2,2))*255).astype(np.uint8)
 		self.setDrawKernel(kern, mask=None, center=(int(1),int(1)), mode='set')
 
+		# Determine lastPos when:
+		#	Mouse is pressed
+		#	Mouse is moved
+		self.lastPos = None
+
+		# Use lastPos only when mouse is being dragged
+		self.dragged = False
+
+
+	# Overriding mouse interactions
+	def mouseClickEvent(self, ev):
+		if self.drawKernel is not None and ev.button() == QtCore.Qt.LeftButton:
+			ev.accept()
+			self.dragged = False
+			self.lastPos = None
+			self.drawAt(ev.pos(), ev)
+			# print("Set lastPos in MouseClickEvent")
+			self.lastPos = ev.pos()
+			self.dragged = True
+		else:
+			ev.ignore()
+
+	def mouseReleaseEvent(self, event):
+		if event.button == Qt.LeftButton:
+			ev.accept()
+			self.dragged = False
+			self.lastPos = None
+		else:
+			ev.ignore()
+			return
+
+	def mouseDragEvent(self, ev):
+		if ev.button() != QtCore.Qt.LeftButton:
+			ev.ignore()
+			return
+		elif self.drawKernel is not None:
+			ev.accept()
+			self.dragged = True
+			self.drawAt(ev.pos(), ev)
+			self.lastPos = ev.pos()
+		else:
+			ev.ignore()
+			return
+
 	def drawAt(self,pos,ev=None):
 		if self.mod._item != None:
 			if self.mod._item['layer'] == 'erase':
 				self.mod.erase(pos, radius=self.mod.eraser_size)
 			elif self.mod._item['layer'] == 'custom':
-				self.mod.customFilter(pos, radius = self.mod.eraser_size)
+				self.mod.customFilter(pos, self.lastPos, radius = self.mod.eraser_size)
 
 
 	def hoverEvent(self,ev):
