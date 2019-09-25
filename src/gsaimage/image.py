@@ -66,6 +66,7 @@ class ImageEditor(QtGui.QWidget):
         self.layout.addWidget(self.nextButton,2,2,1,1)
 
         self.nextButton.clicked.connect(self.next)
+        self.backButton.clicked.connect(self.back)
 
     def next(self):
         index = self.layer_edit.currentIndex()
