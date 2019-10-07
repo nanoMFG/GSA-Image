@@ -7,7 +7,7 @@ from PyQt5 import QtGui, QtCore, QtWidgets
 import pyqtgraph as pg
 from PIL import Image
 import collections
-from gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage, Modification
+from .gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage, Modification
 
 class ImageEditor(QtGui.QWidget):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask
