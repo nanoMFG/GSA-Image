@@ -112,7 +112,7 @@ class Review(Modification):
         self.maskImg = pg.ImageItem()
         self.maskBox = pg.GraphicsLayoutWidget()
         self.maskBox_VB = self.maskBox.addViewBox(row=1,col=1)
-        self.maskBox_VB.addItem(self.maskItem)
+        self.maskBox_VB.addItem(self.maskImg)
         self.maskBox_VB.setAspectLocked(True)
 
         self.px_per_um = QtGui.QLabel('')
