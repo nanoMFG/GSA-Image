@@ -55,7 +55,7 @@ class ImageEditor(QtGui.QWidget):
 
         for key, value in self.modifications.items():
             self.layer_edit.addWidget(value.widget())
-        self.layer_edit.setCurrentWidget(self.modifications['Initial Image'])
+        self.layer_edit.setCurrentWidget(self.modifications['Initial Image'].widget())
 
         self.layout = QtGui.QGridLayout(self)
         self.layout.setAlignment(QtCore.Qt.AlignTop)
