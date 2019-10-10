@@ -13,7 +13,7 @@ class ImageEditor(QtGui.QWidget):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask
     def __init__(self,sem_id,privileges=None,mode='local',parent=None):
         super(ImageEditor,self).__init__(parent=parent)
-        self.img = np.array([])
+        self.img = np.zeros((1,1))
         self.sem_id = sem_id
         self.mode = mode
 
