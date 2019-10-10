@@ -11,10 +11,11 @@ from .gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage,
 
 class ImageEditor(QtGui.QWidget):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask
-    def __init__(self,img,sem_id,privileges=None,parent=None):
+    def __init__(self,img,sem_id,privileges=None,mode='local',parent=None):
         super(ImageEditor,self).__init__(parent=parent)
         self.img = np.array(img)
         self.sem_id = sem_id
+        self.mode = mode
 
         self.nextButton = QtGui.QPushButton("Draw Scale")
         self.backButton = QtGui.QPushButton("Back")
