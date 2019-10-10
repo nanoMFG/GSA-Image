@@ -106,7 +106,7 @@ class Review(Modification):
         self.startImg = pg.ImageItem()
         self.startBox = pg.GraphicsLayoutWidget()
         self.startBox_VB = self.startBox.addViewBox(row=1,col=1)
-        self.startBox_VB.addItem(self.startItem)
+        self.startBox_VB.addItem(self.startImg)
         self.startBox_VB.setAspectLocked(True)
 
         self.maskImg = pg.ImageItem()
