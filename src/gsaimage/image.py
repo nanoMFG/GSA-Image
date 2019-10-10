@@ -7,6 +7,7 @@ from PyQt5 import QtGui, QtCore, QtWidgets
 import pyqtgraph as pg
 from PIL import Image
 import collections
+import io
 from .gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage, Modification
 
 class ImageEditor(QtGui.QWidget):
