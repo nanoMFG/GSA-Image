@@ -54,7 +54,7 @@ class ImageEditor(QtGui.QWidget):
         self.step_labels = list(self.modifications.keys())[1:]+['Submit']
 
         for key, value in self.modifications.items():
-            self.layer_edit.addWidget(value)
+            self.layer_edit.addWidget(value.widget())
         self.layer_edit.setCurrentWidget(self.modifications['Initial Image'])
 
         self.layout = QtGui.QGridLayout(self)
