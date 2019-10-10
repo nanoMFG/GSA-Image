@@ -100,7 +100,7 @@ class ImageEditor(QtGui.QWidget):
 
 class Review(Modification):
     def __init__(self,mod_in=None,img_item=None,properties={}):
-        super(Submit,self).__init__(mod_in,img_item,properties)
+        super(Review,self).__init__(mod_in,img_item,properties)
         self.submitButton = QtGui.QPushButton('Submit')
 
         self.startImg = pg.ImageItem()
