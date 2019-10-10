@@ -69,25 +69,27 @@ class ImageEditor(QtGui.QWidget):
         self.backButton.clicked.connect(self.back)
 
     def next(self):
-        index = self.layer_edit.currentIndex()
-        if index < self.layer_edit.count() - 1:
-            self.nextButton.setText(self.step_labels[index+1])
+        if self.img:
+            index = self.layer_edit.currentIndex()
+            if index < self.layer_edit.count() - 1:
+                self.nextButton.setText(self.step_labels[index+1])
 
-            self.layer_edit.setCurrentIndex(index+1)
-            self.layer_edit.currentWidget().update_view()
-        elif index == self.layer_edit.count() - 1:
-            mask = self.modifications['Template Matching'].properties['total_mask']
-            scale = self.modifications['Draw Scale'].properties['scale']
-            px_per_um = int(1/scale)
-            self.submitClicked.emit(self.sem_id,px_per_um,properties['mask'])
+                self.layer_edit.setCurrentIndex(index+1)
+                self.layer_edit.currentWidget().update_view()
+            elif index == self.layer_edit.count() - 1:
+                mask = self.modifications['Template Matching'].properties['total_mask']
+                scale = self.modifications['Draw Scale'].properties['scale']
+                px_per_um = int(1/scale)
+                self.submitClicked.emit(self.sem_id,px_per_um,properties['mask'])
 
     def back(self):
-        index = self.layer_edit.currentIndex()
-        if index > 0:
-            self.nextButton.setText(self.step_labels[index-1])
+        if self.img:
+            index = self.layer_edit.currentIndex()
+            if index > 0:
+                self.nextButton.setText(self.step_labels[index-1])
 
-            self.layer_edit.setCurrentIndex(index-1)
-            self.layer_edit.currentWidget().update_view()
+                self.layer_edit.setCurrentIndex(index-1)
+                self.layer_edit.currentWidget().update_view()
 
 
 class Review(Modification):
