@@ -34,9 +34,9 @@ class ImageEditor(QtGui.QWidget):
                                                 img_item = self.imgItem,
                                                 properties = {'mode':self.mode})
         self.modifications['Draw Scale'] = DrawScale(
-                                                self.modifications['InitialImage'],
+                                                self.modifications['Initial Image'],
                                                 img_item = self.imgItem,
-                                                properties=self.modifications['InitialImage'].properties)
+                                                properties=self.modifications['Initial Image'].properties)
         self.modifications['Remove Scale'] = RemoveScale(
                                                 self.modifications['Draw Scale'],
                                                 img_item = self.imgItem,
