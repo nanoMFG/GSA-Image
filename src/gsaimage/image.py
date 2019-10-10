@@ -11,9 +11,9 @@ from .gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage,
 
 class ImageEditor(QtGui.QWidget):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask
-    def __init__(self,img,sem_id,privileges=None,mode='local',parent=None):
+    def __init__(self,sem_id,privileges=None,mode='local',parent=None):
         super(ImageEditor,self).__init__(parent=parent)
-        self.img = np.array(img)
+        self.img = None
         self.sem_id = sem_id
         self.mode = mode
 
@@ -33,7 +33,6 @@ class ImageEditor(QtGui.QWidget):
         self.modifications['Initial Image'] = InitialImage(
                                                 img_item = self.imgItem,
                                                 properties = {'mode':self.mode})
-        self.modifications['Initial Image'].set_image(self.img)
         self.modifications['Draw Scale'] = DrawScale(
                                                 self.modifications['InitialImage'],
                                                 img_item = self.imgItem,
@@ -68,6 +67,11 @@ class ImageEditor(QtGui.QWidget):
 
         self.nextButton.clicked.connect(self.next)
         self.backButton.clicked.connect(self.back)
+
+    def loadImage(self,data,thread_id,info):
+        self._id = thread_id
+        self.img = np.array(Image.open(io.BytesIO(data)))
+        self.modifications['Initial Image'].set_image(self.img)
 
     def next(self):
         if self.img:
