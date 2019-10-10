@@ -33,6 +33,7 @@ class ImageEditor(QtGui.QWidget):
         self.modifications['Initial Image'] = InitialImage(
                                                 img_item = self.imgItem,
                                                 properties = {'mode':self.mode})
+        self.modifications['Initial Image'].set_image(self.img)
         self.modifications['Draw Scale'] = DrawScale(
                                                 self.modifications['Initial Image'],
                                                 img_item = self.imgItem,
