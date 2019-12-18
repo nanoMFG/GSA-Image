@@ -14,7 +14,7 @@ class ImageEditor(QtGui.QScrollArea):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask
     def __init__(self,sem_id,privileges=None,mode='local',parent=None):
         super(ImageEditor,self).__init__(parent=parent)
-        self.img = np.zeros((1,1))
+        self.img = None
         self.sem_id = sem_id
         self.mode = mode
 
@@ -80,7 +80,7 @@ class ImageEditor(QtGui.QScrollArea):
         self.modifications['Initial Image'].update_view()
 
     def next(self):
-        if self.img!=None:
+        if self.img is not None:
             index = self.layer_edit.currentIndex()
             if index < self.layer_edit.count() - 1:
                 self.nextButton.setText(self.step_labels[index+1])
@@ -94,7 +94,7 @@ class ImageEditor(QtGui.QScrollArea):
                 self.submitClicked.emit(self.sem_id,px_per_um,properties['mask'])
 
     def back(self):
-        if self.img!=None:
+        if self.img is not None:
             index = self.layer_edit.currentIndex()
             if index > 0:
                 self.nextButton.setText(self.step_labels[index-1])
