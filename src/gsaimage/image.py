@@ -10,7 +10,7 @@ import collections
 import io
 from .gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage, Modification
 
-class ImageEditor(QtGui.QWidget):
+class ImageEditor(QtGui.QScrollArea):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask
     def __init__(self,sem_id,privileges=None,mode='local',parent=None):
         super(ImageEditor,self).__init__(parent=parent)
@@ -58,14 +58,17 @@ class ImageEditor(QtGui.QWidget):
             self.layer_edit.addWidget(value.widget())
         self.layer_edit.setCurrentWidget(self.modifications['Initial Image'].widget())
 
-        self.layout = QtGui.QGridLayout(self)
+        self.contentWidget = QtGui.QWidget()
+        self.layout = QtGui.QGridLayout(self.contentWidget)
         self.layout.setAlignment(QtCore.Qt.AlignTop)
+        self.setWidgetResizable(True)
+        self.setWidget(self.contentWidget)
 
-        self.layout.addWidget(self.imgBox,0,0,3,1)
-        self.layout.addWidget(self.layerLabel,0,1,1,2)
-        self.layout.addWidget(self.layer_edit,1,1,1,2)
-        self.layout.addWidget(self.backButton,2,1,1,1)
-        self.layout.addWidget(self.nextButton,2,2,1,1)
+        self.layout.addWidget(self.imgBox,1,0,2,1)
+        self.layout.addWidget(self.layerLabel,0,1,1,1)
+        self.layout.addWidget(self.layer_edit,1,1,1,1)
+        self.layout.addWidget(self.backButton,2,0,1,1)
+        self.layout.addWidget(self.nextButton,2,1,1,1)
 
         self.nextButton.clicked.connect(self.next)
         self.backButton.clicked.connect(self.back)
@@ -74,9 +77,10 @@ class ImageEditor(QtGui.QWidget):
         self._id = thread_id
         self.img = np.array(Image.open(io.BytesIO(data)))
         self.modifications['Initial Image'].set_image(self.img)
+        self.modifications['Initial Image'].update_view()
 
     def next(self):
-        if self.img:
+        if self.img!=None:
             index = self.layer_edit.currentIndex()
             if index < self.layer_edit.count() - 1:
                 self.nextButton.setText(self.step_labels[index+1])
@@ -90,7 +94,7 @@ class ImageEditor(QtGui.QWidget):
                 self.submitClicked.emit(self.sem_id,px_per_um,properties['mask'])
 
     def back(self):
-        if self.img:
+        if self.img!=None:
             index = self.layer_edit.currentIndex()
             if index > 0:
                 self.nextButton.setText(self.step_labels[index-1])
