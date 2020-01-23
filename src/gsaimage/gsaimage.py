@@ -261,6 +261,7 @@ class GSAImage:
             # except:
                 # pass
             self.wDetail.setCurrentIndex(index)
+            print(index)
         elif self.wModList.count() > 0:
             self.wModList.setCurrentRow(self.wModList.count()-1)
 
@@ -468,44 +469,51 @@ class RemoveScale(Modification):
         obj.widget().hide()
         return obj
 
+    def crop_image(self,img,box):
+        pil_img = Image.fromarray(img)
+        return np.array(pil_img.crop(box))
+
     def update_image(self,scale_location='Auto',tol=0.95):
         img_array = self.mod_in.image()
         img = Image.fromarray(img_array)
         width,height = img.size
         crop_img = None
+        self.box = (0,0,width,height)
         if scale_location == 'Bottom' or scale_location == 'Auto':
             for row in range(height):
                 if np.mean(img_array[row,:]==0)>tol:
-                    box = (0,0,width,row)
-                    crop_img = img.crop(box)
+                    self.box = (0,0,width,row)
+                    crop_img = img.crop(self.box)
                     break
         elif scale_location == 'Top' or scale_location == 'Auto':
             for row in reversed(range(height)):
                 if np.mean(img_array[row,:]==0)>tol:
-                    box = (0,row,width,height)
+                    self.box = (0,row,width,height)
                     if scale_location == 'Top':
-                        crop_img = img.crop(box)
-                    elif scale_location == 'Auto' and np.multiply(*box.size)>np.multiply(*crop_img.size):
-                        crop_img = img.crop(box)
+                        crop_img = img.crop(self.box)
+                    elif scale_location == 'Auto' and np.multiply(*self.box.size)>np.multiply(*crop_img.size):
+                        crop_img = img.crop(self.box)
                     break
         elif scale_location == 'Right' or scale_location == 'Auto':
             for col in range(width):
                 if np.mean(img_array[:,col]==0)>tol:
-                    box = (0,0,col,height)
+                    self.box = (0,0,col,height)
                     if scale_location == 'Right':
-                        crop_img = img.crop(box)
-                    elif scale_location == 'Auto' and np.multiply(*box.size)>np.multiply(*crop_img.size):
-                        crop_img = img.crop(box)
+                        crop_img = img.crop(self.box)
+                    elif scale_location == 'Auto' and np.multiply(*self.box.size)>np.multiply(*crop_img.size):
+                        crop_img = img.crop(self.box)
                     break
         elif scale_location == 'Left' or scale_location == 'Auto':
             for col in reversed(range(width)):
                 if np.mean(img_array[:,col]==0)>tol:
-                    box = (col,0,width,height)
+                    self.box = (col,0,width,height)
                     if scale_location == 'Left':
-                        crop_img = img.crop(box)
-                    elif scale_location == 'Auto' and np.multiply(*box.size)>np.multiply(*crop_img.size):
-                        crop_img = img.crop(box)
+                        crop_img = img.crop(self.box)
+                    elif scale_location == 'Auto' and np.multiply(*self.box.size)>np.multiply(*crop_img.size):
+                        crop_img = img.crop(self.box)
                     break
+
+        self.properties['scale_crop_box'] = self.box
         if crop_img:
             self.img_out = np.array(crop_img)
         else:
@@ -1359,8 +1367,10 @@ class Crop(Modification):
         return obj
 
     def update_image(self):
-        self.img_out = self.roi.getArrayRegion(self.wImgROI.image,self.wImgROI)
+        self.img_out,coords = self.roi.getArrayRegion(self.wImgROI.image,self.wImgROI,returnMappedCoords=True)
         self.img_out = self.img_out.astype(np.uint8)
+
+        self.properties['crop_coords'] = coords.tolist()
 
     def widget(self):
         return self.wLayout
@@ -1637,6 +1647,7 @@ class DrawScale(Modification):
 
         self.roi.sigRegionChanged.connect(self.update_view)
         self.wLengthEdit.returnPressed.connect(self.update_view)
+        self.wLengthEdit.textChanged.connect(self.update_view)
 
     def to_dict(self):
         d = super(DrawScale,self).to_dict()

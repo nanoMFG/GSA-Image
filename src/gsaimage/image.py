@@ -17,12 +17,33 @@ class ImageEditor(QtGui.QScrollArea):
         self.img = None
         self.sem_id = sem_id
         self.mode = mode
+        self.modifications = []
 
-        self.nextButton = QtGui.QPushButton("Draw Scale")
-        self.backButton = QtGui.QPushButton("Back")
-        self.layerLabel = QtGui.QLabel('Initial Image')
+        self.mod_dict = {
+        'Filter Pattern': FilterPattern,
+        'Draw Scale': DrawScale,
+        'Crop': Crop,
+        'Remove Scale': RemoveScale
+        }
 
-        self.layer_edit = QtGui.QStackedWidget()
+        self.wComboBox = pg.ComboBox()
+        for item in sorted(list(self.mod_dict)):
+            self.wComboBox.addItem(item)
+
+        self.wAddMod = QtGui.QPushButton('Add')
+        self.wAddMod.clicked.connect(lambda: self.addMod(mod=None))
+
+        self.wRemoveMod = QtGui.QPushButton('Remove')
+        self.wRemoveMod.clicked.connect(self.removeMod) 
+
+        self.wReview = QtGui.QPushButton('Review')
+        self.wReview.clicked.connect(self.review) 
+
+        self.wModList = QtGui.QListWidget()
+        self.wModList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
+        self.wModList.currentRowChanged.connect(self.selectMod)
+
+        self.wDetail = QtGui.QStackedWidget()
 
         self.imgItem = pg.ImageItem()
         self.imgBox = pg.GraphicsLayoutWidget()
@@ -30,77 +51,71 @@ class ImageEditor(QtGui.QScrollArea):
         self.imgBox_VB.addItem(self.imgItem)
         self.imgBox_VB.setAspectLocked(True)
 
-        self.modifications = collections.OrderedDict()        
-        self.modifications['Initial Image'] = InitialImage(
-                                                img_item = self.imgItem,
-                                                properties = {'mode':self.mode})
-        self.modifications['Initial Image'].set_image(self.img)
-        self.modifications['Draw Scale'] = DrawScale(
-                                                self.modifications['Initial Image'],
-                                                img_item = self.imgItem,
-                                                properties=self.modifications['Initial Image'].properties)
-        self.modifications['Remove Scale'] = RemoveScale(
-                                                self.modifications['Draw Scale'],
-                                                img_item = self.imgItem,
-                                                properties = self.modifications['Draw Scale'].properties)
-        self.modifications['Template Matching'] = FilterPattern(
-                                                self.modifications['Remove Scale'],
-                                                img_item = self.imgItem,
-                                                properties = self.modifications['Remove Scale'].properties)
-        self.modifications['Review'] = Review(
-                                                self.modifications['Template Matching'],
-                                                img_item = self.imgItem,
-                                                properties = self.modifications['Template Matching'].properties)
-
-        self.step_labels = list(self.modifications.keys())[1:]+['Submit']
-
-        for key, value in self.modifications.items():
-            self.layer_edit.addWidget(value.widget())
-        self.layer_edit.setCurrentWidget(self.modifications['Initial Image'].widget())
-
         self.contentWidget = QtGui.QWidget()
         self.layout = QtGui.QGridLayout(self.contentWidget)
         self.layout.setAlignment(QtCore.Qt.AlignTop)
         self.setWidgetResizable(True)
         self.setWidget(self.contentWidget)
 
-        self.layout.addWidget(self.imgBox,1,0,2,1)
-        self.layout.addWidget(self.layerLabel,0,1,1,1)
-        self.layout.addWidget(self.layer_edit,1,1,1,1)
-        self.layout.addWidget(self.backButton,2,0,1,1)
-        self.layout.addWidget(self.nextButton,2,1,1,1)
+        self.layout.addWidget(self.wAddMod,0,0,1,1)
+        self.layout.addWidget(self.wModList,1,0,1,1)
+        self.layout.addWidget(self.wRemoveMod,2,0,1,1)
+        self.layout.addWidget(self.wComboBox,3,0,1,1)
+        self.layout.addWidget(self.wReview,4,0,1,1)
+        self.layout.addWidget(self.imgBox,0,1,4,1)
+        self.layout.addWidget(self.wDetail,0,2,4,1)
 
-        self.nextButton.clicked.connect(self.next)
-        self.backButton.clicked.connect(self.back)
 
     def loadImage(self,data,thread_id,info):
         self._id = thread_id
-        self.img = np.array(Image.open(io.BytesIO(data)))
-        self.modifications['Initial Image'].set_image(self.img)
-        self.modifications['Initial Image'].update_view()
+        self.img = np.array(Image.open(io.BytesIO(data)).convert('L')).copy()
 
-    def next(self):
-        if self.img is not None:
-            index = self.layer_edit.currentIndex()
-            if index < self.layer_edit.count() - 1:
-                self.nextButton.setText(self.step_labels[index+1])
+        mod = InitialImage(img_item=self.imgItem,properties={'mode':self.mode,'sem_id':self.sem_id})
+        mod.set_image(self.img)
+        self.addMod(mod)
 
-                self.layer_edit.setCurrentIndex(index+1)
-                self.layer_edit.currentWidget().update_view()
-            elif index == self.layer_edit.count() - 1:
-                mask = self.modifications['Template Matching'].properties['total_mask']
-                scale = self.modifications['Draw Scale'].properties['scale']
-                px_per_um = int(1/scale)
-                self.submitClicked.emit(self.sem_id,px_per_um,properties['mask'])
+        print(mod.image().shape)
 
-    def back(self):
-        if self.img is not None:
-            index = self.layer_edit.currentIndex()
-            if index > 0:
-                self.nextButton.setText(self.step_labels[index-1])
+    def addMod(self,mod=None):
+        if mod == None:
+            if len(self.modifications) > 0:
+                mod = self.mod_dict[self.wComboBox.value()](self.modifications[-1],self.imgItem,properties={'mode':self.mode})
+            else:
+                return
+        self.modifications.append(mod)
+        self.wDetail.addWidget(mod.widget())
+        self.wModList.addItem("%d %s"%(self.wModList.count(),mod.name()))
+        if self.wModList.count() > 0:
+            self.wModList.setCurrentRow(self.wModList.count()-1)
 
-                self.layer_edit.setCurrentIndex(index-1)
-                self.layer_edit.currentWidget().update_view()
+    def removeMod(self):
+        if len(self.modifications) > 1:
+            self.wDetail.removeWidget(self.modifications[-1].widget())
+            self.selectMod(-1)
+            del[self.modifications[-1]]
+            self.wModList.takeItem(self.wModList.count()-1)
+            if self.wModList.count() > 0:
+                self.wModList.setCurrentRow(self.wModList.count()-1)
+
+    def selectMod(self,index):
+        if index >= 0:
+            # try:
+            self.modifications[index].update_view()
+            # except:
+                # pass
+            self.wDetail.setCurrentIndex(index)
+            print(index)
+        elif self.wModList.count() > 0:
+            self.wModList.setCurrentRow(self.wModList.count()-1)
+
+    def review(self):
+        mod = Review(
+            self.modifications[-1],
+            self.imgItem,
+            properties={'mode':self.mode})
+        mod.submitButton.clicked.connect(lambda: self.submitClicked.emit(*mod.update_image()))
+        # mod.submitButton.clicked.connect(lambda: print(mod.update_image()))
+        self.addMod(mod)
 
 
 class Review(Modification):
@@ -126,16 +141,39 @@ class Review(Modification):
         self.layout = QtGui.QGridLayout(self.mainWidget)
 
         self.layout.addWidget(self.startBox,0,0,1,1)
-        self.layout.addWidget(self.maskBox,0,1,1,1)
+        # self.layout.addWidget(self.maskBox,0,1,1,1)
         self.layout.addWidget(QtGui.QLabel('Pixels/um:'),1,0,1,1)
         self.layout.addWidget(self.px_per_um,1,1,1,1)
+        self.layout.addWidget(self.submitButton,2,0,1,1)
 
     def update_image(self):
-        properties = self.back_properties()
-        self.px_per_um.setText(str(int(1/properties['scale'])))
-
         start_img = self.root().image()
-        self.startImg.setImage(start_img,levels=(0,255))
+        final_img = start_img.copy()
+        mask = None
+        px_per_um = 0
+        for mod in self.tolist():
+            if mod.name() == 'Crop':
+                if 'crop_coords' in mod.properties.keys():
+                    crop_slice = np.array(mod.properties['crop_coords'])
+                    final_img = final_img[crop_slice]
+            elif mod.name() == 'Remove Scale':
+                if 'scale_crop_box' in mod.properties.keys():
+                    final_img = mod.crop_image(final_img,mod.properties['scale_crop_box'])
+            elif mod.name() == 'Filter Pattern':
+                if 'mask_total' in mod.properties.keys():
+                    self.startImg.setImage(final_img.copy(),levels=(0,255))
+                    mask = np.array(mod.properties['mask_total'])
+                    final_img[np.logical_not(mask)] = 255 
+                    self.maskImg.setImage(final_img,levels=(0,255))
+            elif mod.name() == 'Draw Scale':
+                if 'num_pixels' in mod.properties.keys():
+                    px_per_um = mod.properties['num_pixels']
+                    self.px_per_um.setText(str(px_per_um))
 
-        mask = np.array(properties['total_mask'])
-        self.maskImg.setImage(start_img[mask],levels=(0,255))
+        return int(self.back_properties()['sem_id']), px_per_um, mask
+
+    def name(self):
+        return 'Review'
+
+    def widget(self):
+        return self.mainWidget
