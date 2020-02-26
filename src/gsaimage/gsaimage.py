@@ -29,12 +29,10 @@ def slow_update(func, pause=0.3):
     return wrapper
 
 def mask_color_img(img, mask, color=[0, 0, 255], alpha=0.3):
-    img = np.dstack((img, img, img))
     out = img.copy()
     img_layer = img.copy()
     img_layer[mask] = color
-    out = cv2.addWeighted(img_layer, alpha, out, 1 - alpha, 0, out)
-    return(out)
+    return cv2.addWeighted(img_layer, alpha, out, 1 - alpha, 0, out)
 
 def check_extension(file_name, extensions):
     return any([(file_name[-4:]==ext and len(file_name)>4) for ext in extensions])
@@ -1081,7 +1079,6 @@ class TemplateMatchingWidget(Modification):
         self.img_out = self.img_in.copy()
         self.img_out[np.logical_not(self._mask)] = 255
 
-        self.properties['mask_total'] = self._mask.tolist()
         self.imageChanged.emit(self.img_out)
 
     def update_view(self):
@@ -1095,6 +1092,10 @@ class TemplateMatchingWidget(Modification):
     def unfocus(self):
         self.roi.hide()
 
+    @property
+    def mask(self):
+        return self._mask
+
 
 class CustomFilter(Modification):
     imageChanged = QtCore.pyqtSignal(object)
@@ -1106,6 +1107,7 @@ class CustomFilter(Modification):
             self.img_in = img_in
         else:
             self.img_in = self.mod_in.image()
+        self.img_in = np.dstack((self.img_in, self.img_in, self.img_in))
         self.roi_img = self.img_in.copy()
 
         self.sizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
@@ -1137,26 +1139,25 @@ class CustomFilter(Modification):
         if slices is not None and mask is not None:
             self._mask[slices] = comparator(mask,self._mask[slices])
 
-        if isinstance(self._mask_in,np.ndarray):
-            self._mask = comparator(self._mask_in,self._mask)
+            if isinstance(self._mask_in,np.ndarray):
+                self._mask = comparator(self._mask_in,self._mask)
 
-        self.roi_img = mask_color_img(
-            self.img_in.copy(), 
-            self._mask, 
-            color=[0, 0, 255], 
-            alpha=0.3)
+            self.roi_img = mask_color_img(
+                self.img_in, 
+                self._mask, 
+                color=[0, 0, 255], 
+                alpha=0.3)
 
-        self.properties['mask_total'] = self._mask.tolist()
-
-        self.img_out = self.img_in.copy()
-        self.img_out[np.logical_not(self._mask)] = 255
-        self.imageChanged.emit(self.img_out)
-        self.img_item.setImage(self.roi_img,levels=(0,255))
+            self.img_out = np.squeeze(self.img_in[...,0].copy())
+            self.img_out[np.logical_not(self._mask)] = 255
+            self.imageChanged.emit(self.img_out)
+            self.img_item.setImage(self.roi_img,levels=(0,255))
         
 
     def focus(self):
         self.updateKernelCursor(self.sizeSlider.value())
         self.img_item.imageUpdateSignal.connect(self.update_view)
+
 
     def unfocus(self):
         self.img_item.setDrawKernel()
@@ -1189,6 +1190,7 @@ class ClusterFilter(Modification):
             self.img_in = img_in
         else:
             self.img_in = self.mod_in.image()
+        self.img_in = np.dstack((self.img_in, self.img_in, self.img_in))
         self.roi_img = self.img_in.copy()
 
         self.cluster_list = QtWidgets.QListWidget()
@@ -1244,14 +1246,12 @@ class ClusterFilter(Modification):
             self._mask = np.logical_or(self._mask,self._mask_in)
 
         self.roi_img = mask_color_img(
-            self.img_in.copy(), 
+            self.img_in, 
             self._mask, 
             color=[0, 0, 255], 
             alpha=0.3)
 
-        self.properties['mask_total'] = self._mask.tolist()
-
-        self.img_out = self.img_in.copy()
+        self.img_out = np.squeeze(self.img_in[...,0].copy())
         self.img_out[np.logical_not(self._mask)] = 255
 
         self.update_view()
@@ -1457,7 +1457,7 @@ class FilterPattern(Modification):
     def properties(self):
         count = self.stackedControl.count()
         if count > 0:
-            self._properties["mask_total"] = self.stackedControl.widget(count-1).properties["mask_total"]
+            self._properties["mask_total"] = self.stackedControl.widget(count-1).mask.tolist()
         return self._properties
 
     @properties.setter
@@ -1529,8 +1529,8 @@ class FilterPattern(Modification):
             w.unfocus()
             if isinstance(w,TemplateMatchingWidget):
                 self.wImgBox_VB.removeItem(w.roi)
-            self.stackedControl.removeWidget(w)
             self.wFilterList.takeItem(index)
+            self.stackedControl.removeWidget(w)
             self.update_view()
 
     def export(self):
