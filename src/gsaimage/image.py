@@ -16,7 +16,6 @@ class ImageEditor(QtGui.QScrollArea):
         super(ImageEditor,self).__init__(parent=parent)
         self.img = None
         self.sem_id = sem_id
-        self.mode = mode
         self.modifications = []
         self.config = config
 
