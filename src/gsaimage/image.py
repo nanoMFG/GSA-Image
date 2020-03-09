@@ -12,12 +12,13 @@ from .gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage,
 
 class ImageEditor(QtGui.QScrollArea):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask
-    def __init__(self,sem_id,privileges=None,mode='local',parent=None):
+    def __init__(self,sem_id,config,parent=None):
         super(ImageEditor,self).__init__(parent=parent)
         self.img = None
         self.sem_id = sem_id
         self.mode = mode
         self.modifications = []
+        self.config = config
 
         self.mod_dict = {
         'Filter Pattern': FilterPattern,
@@ -70,7 +71,7 @@ class ImageEditor(QtGui.QScrollArea):
         self._id = thread_id
         self.img = np.array(Image.open(io.BytesIO(data)).convert('L')).copy()
 
-        mod = InitialImage(img_item=self.imgItem,properties={'mode':self.mode,'sem_id':self.sem_id})
+        mod = InitialImage(img_item=self.imgItem,properties={'mode':self.config.mode,'sem_id':self.sem_id})
         mod.set_image(self.img)
         self.addMod(mod)
 
@@ -79,7 +80,7 @@ class ImageEditor(QtGui.QScrollArea):
     def addMod(self,mod=None):
         if mod == None:
             if len(self.modifications) > 0:
-                mod = self.mod_dict[self.wComboBox.value()](self.modifications[-1],self.imgItem,properties={'mode':self.mode})
+                mod = self.mod_dict[self.wComboBox.value()](self.modifications[-1],self.imgItem,properties={'mode':self.config.mode})
             else:
                 return
         self.modifications.append(mod)
@@ -112,7 +113,7 @@ class ImageEditor(QtGui.QScrollArea):
         mod = Review(
             self.modifications[-1],
             self.imgItem,
-            properties={'mode':self.mode})
+            properties={'mode':self.config.mode})
         mod.submitButton.clicked.connect(lambda: self.submitClicked.emit(*mod.update_image()))
         # mod.submitButton.clicked.connect(lambda: print(mod.update_image()))
         self.addMod(mod)
