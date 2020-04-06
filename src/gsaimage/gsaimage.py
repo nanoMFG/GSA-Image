@@ -39,7 +39,7 @@ def mask_color_img(img, mask, color=[0, 0, 255], alpha=0.3):
 def check_extension(file_name, extensions):
     return any([(file_name[-4:]==ext and len(file_name)>4) for ext in extensions])
 
-def errorCheck(success_text=None, error_text="Error!",logging=True,show_traceback=False):
+def errorCheck(success_text=None, error_text="Error!",logging=False,show_traceback=False):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
@@ -57,7 +57,7 @@ def errorCheck(success_text=None, error_text="Error!",logging=True,show_tracebac
 
                 if logging:
                     logging.exception(traceback.format_exc())
-                elif show_traceback:
+                if show_traceback:
                     error_dialog.setInformativeText(traceback.format_exc())
                 else:
                     error_dialog.setInformativeText(str(e))
@@ -90,7 +90,7 @@ class GSAImage(QtWidgets.QWidget):
         'Blur': Blur,
         'Draw Scale': DrawScale,
         'Crop': Crop,
-        'Domain Centers': DomainCenters2,
+        'Domain Centers': DomainCenters,
         'Hough Transform': HoughTransform,
         'Erase': Erase,
         'Sobel Filter': SobelFilter,
@@ -256,7 +256,8 @@ class GSAImage(QtWidgets.QWidget):
                 mod = InitialImage(img_item=self.wImgItem,properties={'mode':self.mode,"filename":img_fname})
                 mod.set_image(img_data)
                 self.addMod(mod)
-                self.w.setWindowTitle(img_fname)
+                self.setWindowTitle(img_fname)
+                mod.update_view()
             except Exception as e:
                 print(e)
                 return
@@ -273,33 +274,30 @@ class GSAImage(QtWidgets.QWidget):
                 mod = InitialImage(img_item=self.wImgItem,properties={'mode':self.mode})
                 mod.set_image(img_data)
                 self.addMod(mod)
-                self.w.setWindowTitle(img_fname)
+                self.setWindowTitle(img_fname)
+                mod.update_view()
             except Exception as e:
                 print(e)
                 return
         else:
             return
 
+    @errorCheck(logging=False,show_traceback=True)
     def updateAll(self):
         if len(self.modifications) == 0:
             self.clear()
         else:
-            try:
-                self.wModList.clear()
-                while self.wDetail.count() > 0:
-                    self.wDetail.removeWidget(self.wDetail.widget(0))
-                for i,mod in enumerate(self.modifications):
-                    self.wModList.addItem("%d %s"%(i,mod.name()))
-                    self.wDetail.addWidget(mod.widget())
-                self.wModList.setCurrentRow(self.wModList.count()-1)
-            except Exception as e:
-                error_dialog = QtGui.QMessageBox(self)
-                error_dialog.setWindowModality(QtCore.Qt.WindowModal)
-                error_dialog.setText("Error!")
-                error_dialog.setInformativeText(str(e))
-                error_dialog.exec()
+            self.wModList.clear()
+            while self.wDetail.count() > 0:
+                self.wDetail.removeWidget(self.wDetail.widget(0))
+            for i,mod in enumerate(self.modifications):
+                self.wModList.addItem("%d %s"%(i,mod.name()))
+                self.wDetail.addWidget(mod.widget())
+            self.wModList.setCurrentRow(self.wModList.count()-1)
 
+    @errorCheck(logging=False,show_traceback=True)
     def selectMod(self,index):
+        print(index)
         if index >= 0:
             # try:
             self.modifications[index].update_view()
@@ -328,14 +326,14 @@ class GSAImage(QtWidgets.QWidget):
             if self.wModList.count() > 0:
                 self.wModList.setCurrentRow(self.wModList.count()-1)
 
-    @errorCheck(logging=False,show_traceback=False)
+    @errorCheck(logging=False,show_traceback=True)
     def addMod(self,mod=None):
         if mod == None:
             if len(self.modifications) > 0:
                 mod = self.mod_dict[self.wComboBox.value()](self.modifications[-1],self.wImgItem,properties={'mode':self.mode})
             else:
                 return
-        mod.imageChanged.connect(self.wImgItem)
+        mod.imageChanged.connect(lambda img: self.wImgItem.setImage(img,levels=(0,255)))
         self.modifications.append(mod)
         self.wDetail.addWidget(mod.widget())
         self.wModList.addItem("%d %s"%(self.wModList.count(),mod.name()))
@@ -343,7 +341,7 @@ class GSAImage(QtWidgets.QWidget):
             self.wModList.setCurrentRow(self.wModList.count()-1)
 
     def widget(self):
-        return self.w
+        return self
 
     def run(self):
         self.show()
@@ -400,6 +398,7 @@ class Modification(QtWidgets.QScrollArea):
         Updates the image display.
         """
         self.update_image()
+        self.imageChanged.emit(self.img_out)
         self.img_item.setImage(self.img_out,levels=(0,255))
         return self.properties
     def delete_mod(self):
@@ -1565,7 +1564,7 @@ class FilterPattern(Modification):
             export_mask = self.stackedControl.widget(self.stackedControl.count()-1).mask.astype(np.uint8)*255
 
         properties = self.back_properties()
-        default_name = properties["filename"]
+        default_name = os.path.splitext(properties["filename"])[0]
         if properties['mode'] == 'local':
             path = os.path.join(os.getcwd(),default_name+"_mask.png")
             name = QtWidgets.QFileDialog.getSaveFileName(None, 
@@ -1809,9 +1808,9 @@ class HoughTransform(Modification):
     def name(self):
         return 'Hough Transform'
 
-class DomainCenters2(Modification):
+class DomainCenters(Modification):
     def __init__(self,mod_in,img_item,properties={}):
-        super(DomainCenters2,self).__init__(mod_in,img_item,properties)
+        super(DomainCenters,self).__init__(mod_in,img_item,properties)
         self.domain_centers = OrderedDict()
         self.mask = None
         self.radius = 10
@@ -1837,6 +1836,7 @@ class DomainCenters2(Modification):
 
         self.domain_list = QtWidgets.QListWidget()
         self.deleteBtn = QtWidgets.QPushButton("Delete")
+        self.deleteBtn = QtWidgets.QPushButton("Export")
 
         main_widget = QtWidgets.QWidget()
 
@@ -1864,12 +1864,35 @@ class DomainCenters2(Modification):
     def update_properties(self):
         self.properties["domain_centers"] = list(self.domain_centers.keys())
 
+    def export(self):
+        default_name = "untitled.json"
+        if properties['mode'] == 'local':
+            name = QtWidgets.QFileDialog.getSaveFileName(None, 
+                "Export", 
+                path, 
+                "JSON File (*.json)",
+                "JSON File (*.json)")[0]
+            if name != '' and check_extension(name, [".json"]):
+                with open(name,'w') as f:
+                    json.dump(list(self.domain_centers.keys()),f)
+        elif properties["mode"] == 'nanohub':
+            with open(path,'w') as f:
+                json.dump(list(self.domain_centers.keys()),f)
+            subprocess.check_output('exportfile %s'%(default_name),shell=True)
+            try:
+                os.remove(default_name)
+            except:
+                pass
+        else:
+            return
+
     def deleteDomain(self,index=None):
         if index is not None and index>=0:
             key = list(self.domain_centers.keys())[index]
             del self.domain_centers[key]
 
             self.update_view()
+            self.update_properties()
 
     def update_image(self,slices,mask):
         row_slice, col_slice = slices
@@ -1912,63 +1935,6 @@ class DomainCenters2(Modification):
                 alpha=0.3)
         self.wImgROI.setImage(img3d,levels=(0,255))
         self.img_item.setImage(img3d,levels=(0,255))
-
-
-class DomainCenters(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(DomainCenters,self).__init__(mod_in,img_item,properties)
-        self.roi_list = []
-        self.properties['centers'] = []
-        self.properties['scale'] = 1
-        self.img_out = self.mod_in.image()
-        self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QtCore.Qt.AlignTop)
-
-        self.wImgBox = pg.GraphicsLayoutWidget()
-        self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
-        self.wImg = ImageItemCenters(self,self.img_out)
-        self.wImg.setImage(self.img_item.image,levels=(0,255))
-        self.wImgBox_VB.addItem(self.wImg)
-        self.wImgBox_VB.setAspectLocked(True)
-        # self.wImgBox_VB.setMouseEnabled(False,False)
-        self.wRemove = QtGui.QPushButton('Remove')
-        self.wDDLabel = QtGui.QLabel('0')
-
-        self.wLayout.addWidget(self.wImgBox,0,0,4,3)
-        self.wLayout.addWidget(self.wRemove,5,0)
-        self.wLayout.addWidget(QtGui.QLabel('Domain Density:'),5,1)
-        self.wLayout.addWidget(self.wDDLabel,5,2)
-
-        self.wRemove.clicked.connect(self.wImg.removeCenter)
-
-    def to_dict(self):
-        d = super(DomainCenters,self).to_dict()
-        return d
-
-    @classmethod
-    def from_dict(cls,d,img_item):
-        obj = super(DomainCenters, cls).from_dict(d,img_item)
-        for pos in obj.properties['centers']:
-            obj.wImg.drawCircle(pos)
-        obj.update_image()
-        obj.widget().hide()
-
-        return obj
-
-    def update_image(self):
-        back_properties = self.back_properties()
-        if 'scale' in back_properties.keys():
-            self.properties['scale'] = back_properties['scale']
-        x,y = self.img_out.shape
-        self.properties['total_area'] = x*y*self.properties['scale']**2
-        self.properties['domain_density'] = float(len(self.properties['centers']))/self.properties['total_area']
-        self.wDDLabel.setNum(self.properties['domain_density'])
-
-    def widget(self):
-        return self.wLayout
-
-    def name(self):
-        return 'Domain Centers'
 
 class DrawScale(Modification):
     def __init__(self,mod_in,img_item,properties={}):
@@ -2224,44 +2190,6 @@ class SobelFilter(Modification):
 
     def name(self):
         return 'Sobel Filter'
-
-class ImageItemCenters(pg.ImageItem):
-    def __init__(self,mod,img):
-        super(ImageItemCenters,self).__init__()
-        self.mod = mod
-        self.start_img = img.copy()
-        kern = (np.ones((2,2))*255).astype(np.uint8)
-        self.setDrawKernel(kern, mask=None, center=(int(1),int(1)), mode='set')
-
-    def drawAt(self,pos,ev=None):
-        pos = [int(pos.x()), int(pos.y())]
-        self.drawCircle(pos)
-        self.mod.properties['centers'].append(pos)
-        self.updateImage()
-        self.mod.update_view()
-
-    def drawCircle(self,pos,radius=5):
-        a, b = pos[0],pos[1]
-        nx,ny = self.image.shape
-        radius = 5
-
-        x,y = np.ogrid[-a:nx-a, -b:ny-b]
-        mask = x*x + y*y <= radius**2
-
-        self.image[mask] = 255
-
-    def removeCenter(self):
-        if len(self.mod.properties['centers']) > 0:
-            del self.mod.properties['centers'][-1]
-            self.image = self.start_img.copy()
-            for pos in self.mod.properties['centers']:
-                self.drawCircle(pos)
-            self.updateImage()
-            self.mod.update_view()
-
-    def mouseDragEvent(self,ev):
-        pass
-
 
 class SmartImageItem(pg.ImageItem):
     imageUpdateSignal = QtCore.pyqtSignal(object,object)
