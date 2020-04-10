@@ -1574,8 +1574,9 @@ class FilterPattern(Modification):
             if name != '' and check_extension(name, [".png"]):
                 cv2.imwrite(name,export_mask)
         elif self.properties["mode"] == 'nanohub':
+            name = default_name+"_mask.png"
             cv2.imwrite(name,export_mask)
-            subprocess.check_output('exportfile %s'%(default_name+"_mask.png"),shell=True)
+            subprocess.check_output('exportfile %s'%name,shell=True)
             try:
                 os.remove(default_name)
             except:
@@ -1877,7 +1878,7 @@ class DomainCenters(Modification):
                 with open(name,'w') as f:
                     json.dump(list(self.domain_centers.keys()),f)
         elif self.properties["mode"] == 'nanohub':
-            with open(path,'w') as f:
+            with open(default_name,'w') as f:
                 json.dump(list(self.domain_centers.keys()),f)
             subprocess.check_output('exportfile %s'%(default_name),shell=True)
             try:
