@@ -1867,7 +1867,7 @@ class DomainCenters(Modification):
 
     def export(self):
         default_name = "untitled.json"
-        if properties['mode'] == 'local':
+        if self.properties['mode'] == 'local':
             name = QtWidgets.QFileDialog.getSaveFileName(None, 
                 "Export", 
                 path, 
@@ -1876,7 +1876,7 @@ class DomainCenters(Modification):
             if name != '' and check_extension(name, [".json"]):
                 with open(name,'w') as f:
                     json.dump(list(self.domain_centers.keys()),f)
-        elif properties["mode"] == 'nanohub':
+        elif self.properties["mode"] == 'nanohub':
             with open(path,'w') as f:
                 json.dump(list(self.domain_centers.keys()),f)
             subprocess.check_output('exportfile %s'%(default_name),shell=True)
