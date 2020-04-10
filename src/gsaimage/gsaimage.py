@@ -56,7 +56,7 @@ def errorCheck(success_text=None, error_text="Error!",logging=False,show_traceba
                 error_dialog.setText(error_text)
 
                 if logging:
-                    logging.exception(traceback.format_exc())
+                    logger.exception(traceback.format_exc())
                 if show_traceback:
                     error_dialog.setInformativeText(traceback.format_exc())
                 else:
@@ -91,7 +91,7 @@ class GSAImage(QtWidgets.QWidget):
         'Draw Scale': DrawScale,
         'Crop': Crop,
         'Domain Centers': DomainCenters,
-        'Hough Transform': HoughTransform,
+        # 'Hough Transform': HoughTransform,
         'Erase': Erase,
         'Sobel Filter': SobelFilter,
         'Remove Scale': RemoveScale
@@ -282,7 +282,7 @@ class GSAImage(QtWidgets.QWidget):
         else:
             return
 
-    @errorCheck(logging=False,show_traceback=True)
+    @errorCheck(logging=False,show_traceback=False)
     def updateAll(self):
         if len(self.modifications) == 0:
             self.clear()
@@ -295,7 +295,7 @@ class GSAImage(QtWidgets.QWidget):
                 self.wDetail.addWidget(mod.widget())
             self.wModList.setCurrentRow(self.wModList.count()-1)
 
-    @errorCheck(logging=False,show_traceback=True)
+    @errorCheck(logging=False,show_traceback=False)
     def selectMod(self,index):
         print(index)
         if index >= 0:
@@ -326,7 +326,7 @@ class GSAImage(QtWidgets.QWidget):
             if self.wModList.count() > 0:
                 self.wModList.setCurrentRow(self.wModList.count()-1)
 
-    @errorCheck(logging=False,show_traceback=True)
+    @errorCheck(logging=False,show_traceback=False)
     def addMod(self,mod=None):
         if mod == None:
             if len(self.modifications) > 0:
@@ -1564,7 +1564,7 @@ class FilterPattern(Modification):
             export_mask = self.stackedControl.widget(self.stackedControl.count()-1).mask.astype(np.uint8)*255
 
         properties = self.back_properties()
-        default_name = os.path.splitext(properties["filename"])[0]
+        default_name = "untitled"
         if properties['mode'] == 'local':
             path = os.path.join(os.getcwd(),default_name+"_mask.png")
             name = QtWidgets.QFileDialog.getSaveFileName(None, 
@@ -1836,7 +1836,7 @@ class DomainCenters(Modification):
 
         self.domain_list = QtWidgets.QListWidget()
         self.deleteBtn = QtWidgets.QPushButton("Delete")
-        self.deleteBtn = QtWidgets.QPushButton("Export")
+        self.exportBtn = QtWidgets.QPushButton("Export")
 
         main_widget = QtWidgets.QWidget()
 
@@ -1845,12 +1845,14 @@ class DomainCenters(Modification):
         layer_layout.addWidget(self.domain_list,0,0)
         layer_layout.addWidget(self.deleteBtn,1,0)
         layer_layout.addWidget(self.wImgBox,2,0)
+        layer_layout.addWidget(self.exportBtn,3,0)
 
         self.setWidget(main_widget)
 
         self.wImgROI.imageUpdateSignal.connect(self.update_image)
         self.domain_list.currentRowChanged.connect(self.update_view)
         self.deleteBtn.clicked.connect(lambda: self.deleteDomain(self.domain_list.currentRow()))
+        self.exportBtn.clicked.connect(self.export)
 
     def updateKernel(self,radius,kern_val=1):
         kern = np.full((2*radius,2*radius),1-kern_val,dtype=bool)
