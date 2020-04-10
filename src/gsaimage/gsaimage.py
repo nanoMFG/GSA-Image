@@ -1563,9 +1563,8 @@ class FilterPattern(Modification):
         if self.stackedControl.count()>0:
             export_mask = self.stackedControl.widget(self.stackedControl.count()-1).mask.astype(np.uint8)*255
 
-        properties = self.back_properties()
         default_name = "untitled"
-        if properties['mode'] == 'local':
+        if self.properties['mode'] == 'local':
             path = os.path.join(os.getcwd(),default_name+"_mask.png")
             name = QtWidgets.QFileDialog.getSaveFileName(None, 
                 "Export Image", 
@@ -1574,7 +1573,7 @@ class FilterPattern(Modification):
                 "PNG File (*.png)")[0]
             if name != '' and check_extension(name, [".png"]):
                 cv2.imwrite(name,export_mask)
-        elif properties["mode"] == 'nanohub':
+        elif self.properties["mode"] == 'nanohub':
             cv2.imwrite(name,export_mask)
             subprocess.check_output('exportfile %s'%(default_name+"_mask.png"),shell=True)
             try:
