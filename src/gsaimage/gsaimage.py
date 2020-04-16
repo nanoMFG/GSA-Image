@@ -9,6 +9,7 @@ import functools
 from skimage.draw import circle as skcircle
 from PyQt5 import QtGui, QtCore, QtWidgets
 import pyqtgraph as pg
+import pyqtgraph.exporters
 from pyqtgraph import Point
 from PIL import Image
 from collections import OrderedDict
@@ -16,6 +17,8 @@ from sklearn.cluster import MiniBatchKMeans, DBSCAN
 from sklearn.mixture import GaussianMixture
 import matplotlib.pyplot as plt
 import traceback
+
+pg.setConfigOption('background', 'w')
 
 tic = time.time()
 
@@ -303,7 +306,8 @@ class GSAImage(QtWidgets.QWidget):
             self.modifications[index].update_view()
             # except:
                 # pass
-            self.wDetail.setCurrentIndex(index)
+            if index == self.wDetail.count()-1:
+                self.wDetail.setCurrentIndex(index)
         elif self.wModList.count() > 0:
             self.wModList.setCurrentRow(self.wModList.count()-1)
 
@@ -1578,7 +1582,7 @@ class FilterPattern(Modification):
             cv2.imwrite(name,export_mask)
             subprocess.check_output('exportfile %s'%name,shell=True)
             try:
-                os.remove(default_name)
+                os.remove(name)
             except:
                 pass
         else:
@@ -2096,15 +2100,18 @@ class SobelFilter(Modification):
         self.wNoisePercSlider.setMaximum(99)
         self.wNoisePercSlider.setSliderPosition(10)
 
-        self.wHistPlot = pg.PlotWidget(title='Angle Histogram')
+        self.wHistPlot = pg.PlotWidget(title='Angle Histogram',pen=pg.mkPen(color='k',width=4))
         self.wHistPlot.setXRange(0,180)
         self.wHistPlot.hideAxis('left')
 
-        self.wConvPlot = pg.PlotWidget(title='Convolution with Comb Function')
+        self.wConvPlot = pg.PlotWidget(title='Convolution with Comb Function',pen=pg.mkPen(color='k',width=4))
         self.wConvPlot.setXRange(0,60)
         self.wConvPlot.hideAxis('left')
 
         self.wStd = QtGui.QLabel('')
+
+        self.exportHistBtn = QtGui.QPushButton('Export Histogram')
+        self.exportConvBtn = QtGui.QPushButton('Export Convolution')
 
         self.wLayout.addWidget(QtGui.QLabel('Size:'),0,0)
         self.wLayout.addWidget(self.wSobelSizeSlider,0,1)
@@ -2113,10 +2120,39 @@ class SobelFilter(Modification):
         self.wLayout.addWidget(self.wConvPlot,8,0,4,4)
         self.wLayout.addWidget(QtGui.QLabel('Shifted St. Dev.:'),12,0)
         self.wLayout.addWidget(self.wStd,12,1)
+        self.wLayout.addWidget(self.exportHistBtn,13,0)
+        self.wLayout.addWidget(self.exportConvBtn,13,1)
 
         self.wSobelSizeSlider.valueChanged.connect(self.update_view)
 
         self.update_view()
+        self.exportHistBtn.clicked.connect(lambda: self.export(self.wHistPlot.getPlotItem()))
+        self.exportConvBtn.clicked.connect(lambda: self.export(self.wConvPlot.getPlotItem()))
+
+    @errorCheck(error_text="Error exporting item!")
+    def export(self,item):
+        default_name = "untitled"
+        exporter = pyqtgraph.exporters.ImageExporter(item)
+        exporter.parameters()['width'] = 1024
+        if self.properties['mode'] == 'local':
+            path = os.path.join(os.getcwd(),default_name+".png")
+            name = QtWidgets.QFileDialog.getSaveFileName(None, 
+                "Export Image", 
+                path, 
+                "PNG File (*.png)",
+                "PNG File (*.png)")[0]
+            if name != '' and check_extension(name, [".png"]):
+                exporter.export(fileName=name)
+        elif self.properties["mode"] == 'nanohub':
+            name = default_name+".png"
+            exporter.export(fileName=name)
+            subprocess.check_output('exportfile %s'%name,shell=True)
+            try:
+                os.remove(name)
+            except:
+                pass
+        else:
+            return
 
     def to_dict(self):
         d = super(SobelFilter,self).to_dict()
@@ -2172,17 +2208,22 @@ class SobelFilter(Modification):
         self.update_image()
         self.img_item.setImage(self.properties['magnitude'])
         self.wConvPlot.clear()
-        self.wConvPlot.plot(range(len(self.convolution)),self.convolution)
+        self.wConvPlot.plot(
+            range(len(self.convolution)+1),
+            self.convolution,
+            stepMode=True,
+            pen=pg.mkPen(color='k',width=4))
         self.wConvPlot.addLine(x=30)
-        self.wConvPlot.addLine(x=30-np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5]))
-        self.wConvPlot.addLine(x=30+np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5]))
+        self.wConvPlot.addLine(x=30-np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5],width=4))
+        self.wConvPlot.addLine(x=30+np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5],width=4))
         self.wHistPlot.clear()
         self.wHistPlot.plot(
             self.properties['angle_histogram']['x'],
             self.properties['angle_histogram']['y'],
             stepMode=True,
             fillLevel=0,
-            brush=(0,0,255,150))
+            brush=(0,0,255,150),
+            pen=pg.mkPen(color='k',width=4))
         self.wStd.setNum(np.sqrt(self.periodic_var))
 
         return self.properties
