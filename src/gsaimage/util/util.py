@@ -5,7 +5,6 @@ from PIL import Image
 from PyQt5 import QtGui, QtCore, QtWidgets
 import pandas as pd
 import copy
-import io
 import operator
 import requests
 import traceback
@@ -17,7 +16,7 @@ from sqlalchemy import String, Integer, Float, Numeric, Date
 from collections.abc import Sequence
 from collections import OrderedDict, deque
 import pyqtgraph as pg
-from gresq.util.gwidgets import LabelMaker, SpacerMaker, BasicLabel, SubheaderLabel, HeaderLabel, MaxSpacer
+from util.gwidgets import LabelMaker, SpacerMaker, BasicLabel, SubheaderLabel, HeaderLabel, MaxSpacer
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ operators = {
 }
 
 
-def errorCheck(success_text=None, error_text="Error!",logging=True,show_traceback=False):
+def errorCheck(success_text=None, error_text="Error!",logging=True,show_traceback=False,skip=False):
     """
     Decorator for class functions to catch errors and display a dialog box for a success or error.
     Checks if method is a bound method in order to properly handle parents for dialog box.
@@ -47,6 +46,7 @@ def errorCheck(success_text=None, error_text="Error!",logging=True,show_tracebac
     error_text:                 (str) What header to show in the dialog box when there is an error.
     logging:                    (bool) Whether to write error to log. True writes to log, False does not.
     show_traceback:             (bool) Whether to display full traceback in error dialog box. 
+    skip:                       (bool) Whether to skip errorCheck. Useful for testing.
     """
     def decorator(func):
         @functools.wraps(func)
@@ -55,6 +55,8 @@ def errorCheck(success_text=None, error_text="Error!",logging=True,show_tracebac
                 self = args[0]
             else:
                 self = None
+            if skip:
+                return func(*args, **kwargs)
             try:
                 return func(*args, **kwargs)
                 if success_text:
@@ -277,6 +279,7 @@ class ItemsetsTableModel(QtCore.QAbstractTableModel):
             ["Support", "# Features", "Feature Set"]
         ]
         self.endResetModel()
+
 
 def mask_color_img(img, mask, color=[0, 0, 255], alpha=0.3):
     out = img.copy()

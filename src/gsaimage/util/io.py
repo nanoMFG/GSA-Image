@@ -2,19 +2,14 @@ import os
 import numpy as np
 from PIL import Image
 from PyQt5 import QtGui, QtCore, QtWidgets
-import pandas as pd
 import copy
-import io
-import operator
 import requests
 import traceback
-import inspect
 import functools
 import json
-from gresq.database.models import Sample
-from gresq.util.util import errorCheck
+import cv2
+from util.util import errorCheck
 import logging
-from sqlalchemy import String, Integer, Float, Numeric, Date
 from collections.abc import Sequence
 from collections import OrderedDict, deque
 import pyqtgraph as pg
@@ -173,10 +168,18 @@ class IO(QtWidgets.QWidget):
         if isinstance(exptext,str):
             self.export_button = QtWidgets.QPushButton(exptext)
             self.export_button.clicked.connect(lambda: self.exportClicked.emit())
-            self.exportData.connect(lambda data: self.exportFile(data=data,default_filename=None,ftype='json',extension=None))
+            self.exportData.connect(
+                lambda data: self.exportFile(
+                    data=data,
+                    default_filename=default_filename,
+                    ftype=ftype,
+                    extension=extension))
             self.layout.addWidget(self.export_button,0,1)
 
-    @errorCheck(error_text="Error importing file!")
+    def requestExportData(self):
+        self.exportClicked.emit()
+
+    # @errorCheck(error_text="Error importing file!")
     def importFile(self):
         if self.config.mode == "local":
             file_path = QtGui.QFileDialog.getOpenFileName()
@@ -202,7 +205,7 @@ class IO(QtWidgets.QWidget):
             elif ftype == 'json':
                 json.dump(data,f)
             elif ftype == 'image':
-                cv2.imwrite(data)
+                cv2.imwrite(filename,data)
             else:
                 raise ValueError("Parameter 'ftype' must be 'image', 'json' or 'None'!")
         return filename
@@ -236,9 +239,9 @@ class IO(QtWidgets.QWidget):
             else:
                 filt = ''
             filename = QtWidgets.QFileDialog.getSaveFileName(None, 
-                caption="Export Image", 
-                dir=directory,
-                filter=filt)[0]
+                "Export Image", 
+                directory,
+                filt)[0]
             if filename != '':
                 self.saveLocal(data,filename,ftype)
         elif self.config.mode == 'nanohub':
@@ -246,17 +249,3 @@ class IO(QtWidgets.QWidget):
             subprocess.check_output('exportfile %s'%filename,shell=True)
             os.remove(filename)
 
-def downloadAllImageMasks(session, directory):
-    def saveTo(data, path):
-        with open(path, "wb") as f:
-            f.write(data)
-
-    for sample_model in session.query(Sample).all():
-        for analysis in sample_model.analyses:
-            sem = analysis.sem_file_model
-            mask_url = analysis.mask_url
-            img_url = sem.url
-
-            par_path = os.path.join(directory, sample_model)
-            thread = DownloadThread(img_url, sample_model.id)
-            thread.downloadFinished.connect(lambda x, y, z: saveTo)

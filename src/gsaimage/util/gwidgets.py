@@ -2,18 +2,11 @@ import os
 import numpy as np
 from PIL import Image
 from PyQt5 import QtGui, QtCore, QtWidgets
-import pandas as pd
 import copy
 import io
-import operator
-import requests
 import traceback
-import inspect
-from mlxtend.frequent_patterns import apriori
 import functools
-from gresq.database.models import Sample
 import logging
-from sqlalchemy import String, Integer, Float, Numeric, Date
 from collections.abc import Sequence
 from collections import OrderedDict, deque
 import pyqtgraph as pg
@@ -149,34 +142,27 @@ class GStackedMeta(type(QtWidgets.QStackedWidget),type(Sequence)):
 
 class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
     """
-    A much better version of QStackedWidget. Has more functionality inclusing:
+    A much better version of QStackedWidget. Has more functionality including:
 
-        - widgetAdded signal
-        - meta dictionary that contains associated names and attributes for stacked widgets
         - creates lists that are linked to GStackedWidget
         - is indexable (i.e. w = stackedwidget[i] will get you the i'th widget)
         - can make it autosignal a focus/update function
         - existing functions have more flexibility
 
     border:         (bool) Whether the widget should have a border.
-
-
-    widgetAdded signal emits the widget name (str).
     """
-    widgetAdded = QtCore.pyqtSignal(str)
     def __init__(self,border=False,parent=None):
         QtWidgets.QStackedWidget.__init__(self,parent=parent)
-        self._meta = GOrderedDict()
         if border == True:
             self.setFrameStyle(QtGui.QFrame.StyledPanel)
-        self.widgetRemoved.connect(lambda i: self._meta.pop(list(self._meta.keys())[i]))
+        self.model = QtGui.QStandardItemModel()
 
     def __getitem__(self,key):
         if isinstance(key,str):
             try:
-                key = list(self._meta.keys()).index(key)
+                key = self.model.index(key)
             except:
-                raise KeyError("Key '%s' is not in meta."%key)
+                raise KeyError("Key '%s' is not in model."%key)
         if key < self.count():
             return self.widget(key)
         else:
@@ -185,43 +171,42 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
     def __len__(self):
         return self.count()
 
-    @property
-    def meta(self):
-        return self._meta
+    def setIcon(self,row,icon):
+        item = self.model.item(row)
+        item.setData(icon,QtCore.Qt.DecorationRole)
 
-    def createListWidget(self):
-        """
-        Returns a a QListWidget that is linked to this GStackedWidget. Any widgets added will have
-        their metanames added to the list. If list row is changed, GStackedWidget switches to the
-        associated widget.
-        """
-        list_widget = QtWidgets.QListWidget()
-        for name in self._meta.keys():
-            list_widget.addItem(name)
-        
-        self.widgetAdded.connect(list_widget.addItem)
-        self.widgetRemoved.connect(list_widget.takeItem)
-        self.currentChanged.connect(list_widget.setCurrentRow)
+    def createListView(self):
+        listview = QtWidgets.QListView()
+        listview.setModel(self.model)
+        listview.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
+        listview.setSelectionBehavior(QtGui.QAbstractItemView.SelectItems)
+        listview.setMovement(QtWidgets.QListView.Static)
+        listview.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        listview.setDragDropMode(QtWidgets.QAbstractItemView.NoDragDrop)
+        listview.setUniformItemSizes(True)
 
-        list_widget.currentRowChanged.connect(self.setCurrentIndex)
+        self.currentChanged.connect(lambda index: listview.setCurrentIndex(self.model.createIndex(index,0)))
 
-        return list_widget
+        listview.selectionModel().currentRowChanged.connect(
+            lambda current,previous: self.setCurrentIndex(current.row()) if current.isValid() else None)
+
+        return listview
 
     def createGStackedWidget(self,*args,**kwargs):
         gstacked = GStackedWidget(*args,**kwargs)
-        self.widgetRemoved.connect(lambda i: gstacked.removeIndex(i) if i < gstacked.count())
-        self.currentChanged.connect(lambda i: gstacked.setCurrentIndex(i) if i < gstacked.count())
+        self.widgetRemoved.connect(lambda i: gstacked.removeIndex(i) if i < gstacked.count() else None)
+        self.currentChanged.connect(lambda i: gstacked.setCurrentIndex(i) if i < gstacked.count() else None)
 
         return gstacked
 
-    def addWidget(self,widget,name=None,focus_slot=None,metadict=None):
+    def addWidget(self,widget,name=None,icon=QtGui.QIcon(),focus_slot=None):
         """
-        Add a widget to the GStackedWidget.
+        Add a widget to the GStackedWidget. Name and icon are typically used for the listview.
 
         widget:         (QWidget) Widget to be added.
-        name:           (str) Metaname for the widget. Used for labeling widgets and as a key in the metadict.
+        name:           (str) Used for labeling widgets.
+        icon:           (QIcon) Used for setting a corresponding icon
         focus_slot:     (callable) Callable function to be signaled when widget selected.
-        metadict:       (dict) Dictionary to be associated with widget in meta. Accessed via GStackedWidget.meta[name].
         """
         QtWidgets.QStackedWidget.addWidget(self,widget)
         
@@ -233,14 +218,10 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
         if not isinstance(name,str):
             name = "%s - %s"%(widget.__class__.__name__,self.count()-1)
 
-        if name in self.getMetanames():
-            raise ValueError("Metaname %s already in GStackedWidget! Please choose another name."%name)
-        self.widgetAdded.emit(name)
-
-        self._meta[name] = {}
-        
-        if metadict is not None:
-            self._meta[name].update(metadict)
+        item = QtGui.QStandardItem()
+        item.setIcon(icon)
+        item.setText(name)
+        self.model.appendRow(item)
 
         return self.count()-1
 
@@ -250,24 +231,18 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
 
         index:          (int) Index of widget.
         """
+        self.model.takeRow(index)
         QtWidgets.QStackedWidget.removeWidget(self,self.widget(index))
 
     def removeCurrentWidget(self):
-        widget = self.currentWidget()
-        if widget != 0:
-            QtWidgets.QStackedWidget.removeWidget(self,widget)
-
-    def getMetanames(self):
-        return self._meta.keys()
-
-    def metaname(self,index):
-        return list(self._meta.keys())[index]
+        index = self.currentIndex()
+        self.removeIndex(index)
 
     def index(self,key):
         """
         Index of widget name.
         """
-        return list(self._meta.keys()).index(key)
+        return self.model.findItems(key)[0].row()
 
     def clear(self):
         while self.count()>0:
@@ -275,9 +250,9 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
 
     def setCurrentIndex(self,key):
         """
-        Set current widget by index or metaname.
+        Set current widget by index or item label.
 
-        key:            (str or int) Key is the index or the metaname of the widget.
+        key:            (str or int) Key is the index or the item label of the widget.
         """
         if isinstance(key,int):
             pass
@@ -289,42 +264,80 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
 
     def widget(self,key):
         """
-        Get widget by index or metaname.
+        Get widget by index or item label.
 
-        key:            (str or int) Key is the index or the metaname of the widget.
+        key:            (str or int) Key is the index or the item label of the widget.
         """
         if isinstance(key,int):
-            widget = self[key]
+            widget = super(GStackedWidget,self).widget(key)
         elif isinstance(key,str):
-            if key in self._meta.keys():
+            try:
                 key = self.index(key)
-                widget = self[key]
-            else:
-                raise ValueError("Key '%s' not in metadict!"%key)
-        elif isinstance(key,QtWidgets.QWidget):
-            widget = key
+                widget = super(GStackedWidget,self).widget(key)
+            except:
+                raise ValueError("Key '%s' not in model!"%key)
         else:
-            raise ValueError("Key '%s' is type '%s'. Keys must be type 'int', 'str' or 'QWidget'!"%(key,type(key)))
-        return QtWidgets.QStackedWidget.widget(self,widget)
-
+            raise ValueError("Key '%s' is type '%s'. Keys must be type 'int' or 'str'!"%(key,type(key)))
+        return widget
 
 class ImageWidget(pg.GraphicsLayoutWidget):
-    def __init__(self, path, parent=None):
+    def __init__(self, path=None, parent=None):
         super(ImageWidget, self).__init__(parent=parent)
-        self.viewbox = self.addViewBox(row=1, col=1)
-        self.img_item = pg.ImageItem()
-        self.viewbox.addItem(self.img_item)
-        self.viewbox.setAspectLocked(True)
-        self.viewbox.setMouseEnabled(False,False)
+        self._viewbox = self.addViewBox(row=1, col=1)
+        self._img_item = ImageItem()
+        self._viewbox.addItem(self._img_item)
+        self._viewbox.setAspectLocked(True)
+        self._viewbox.setMouseEnabled(False,False)
 
-        img = np.array(Image.open(path))
-        self.img_item.setImage(img, levels=(0, 255))
+        if isinstance(path,str):
+            img = np.array(Image.open(path))
+            self.setImage(img, levels=(0, 255))
 
-        self.viewbox.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
+        self._viewbox.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
         self.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
+
+    def imageItem(self):
+        return self._img_item
+
+    def viewBox(self):
+        return self._viewbox
+
+    def setImage(self,*args,**kwargs):
+        self._img_item.setImage(*args,**kwargs)
+
+class ImageItem(pg.ImageItem):
+    def setImage(self,image,*args,**kwargs):
+        super(ImageItem,self).setImage(image[:,::-1,...],*args,**kwargs)
+
+class DisplayWidgetFactory:
+    def __init__(self,height=None,width=None):
+        self.height = height
+        self.width = width
+
+    def __call__(self,*args,**kwargs):
+        widget = QW.QWidget(*args,**kwargs)
+        if isinstance(height,int):
+            widget.setMinimumHeight(height)
+        if isinstance(width,int):
+            widget.setMinimumWidth(width)
+
+def makeImageWidget():
+    widget = pg.GraphicsLayoutWidget
+    viewbox = widget.addViewBox(row=1, col=1)
+    img_item = ImageItem()
+    viewbox.addItem(img_item)
+    viewbox.setAspectLocked(True)
+    viewbox.setMouseEnabled(False,False)
+
+    viewbox.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
+    widget.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
+
+    return widget, img_item, viewbox
 
 HeaderLabel = LabelMaker(family='Helvetica',size=28,bold=True)
 SubheaderLabel = LabelMaker(family='Helvetica',size=18)
 BasicLabel = LabelMaker()
 
 MaxSpacer = SpacerMaker()
+
+StandardDisplay = DisplayWidgetFactory(width=300)

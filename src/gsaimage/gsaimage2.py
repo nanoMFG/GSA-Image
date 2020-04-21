@@ -7,32 +7,82 @@ from skimage import util
 from skimage import color
 import functools
 from skimage.draw import circle as skcircle
-from PyQt5 import QtGui, QtCore, QtWidgets
+from PyQt5 import QtGui as QG
+from PyQt5 import QtWidgets as QW
+from PyQt5 import QtCore as QC
 import pyqtgraph as pg
 import pyqtgraph.exporters
 from pyqtgraph import Point
+from pyqtgraph import SignalProxy
 from PIL import Image
+from PIL.ImageQt import ImageQt
 from collections import OrderedDict
 from sklearn.cluster import MiniBatchKMeans, DBSCAN
 from sklearn.mixture import GaussianMixture
 import matplotlib.pyplot as plt
 from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
-from util.gwidgets import GStackedWidget, ImageWidget
+from util.gwidgets import GStackedWidget, ImageWidget, StandardDisplay
 from util.io import IO
+from io import BytesIO
+import traceback
 
 pg.setConfigOption('background', 'w')
+pg.setConfigOption('imageAxisOrder', 'row-major')
 
-class GSAImage(QtWidgets.QMainWindow):
+testMode = True
+
+## TODO: add toolbar and/or menu bar
+class Main(QW.QMainWindow):
+    def __init__(self,mode='local',*args,**kwargs):
+        super(Main,self).__init__(*args,**kwargs)
+
+        self.mainWidget = GSAImage(mode=mode)
+        self.setCentralWidget(self.mainWidget)
+
+        mainMenu = self.menuBar()
+        mainMenu.setNativeMenuBar(False)
+
+        importAction = QG.QAction("&Import Image",self)
+        importAction.triggered.connect(self.mainWidget.importTrigger)
+        exportAction = QG.QAction("&Export Image",self)
+        exportAction.triggered.connect(self.mainWidget.exportTrigger)
+        
+        fileMenu = mainMenu.addMenu('&File')
+        fileMenu.addAction(importAction)
+        fileMenu.addAction(exportAction)
+
+        helpAction = QG.QAction("&About",self)
+        helpAction.triggered.connect(self.showAboutDialog)
+
+        helpMenu = mainMenu.addMenu('&Help')
+        helpMenu.addAction(helpAction)
+
+        self.show()
+
+    def showAboutDialog(self):
+        about_dialog = QW.QMessageBox(self)
+        about_dialog.setText("About This Tool")
+        about_dialog.setWindowModality(QC.Qt.WindowModal)
+
+        about_text = """
+        """
+
+        about_dialog.setInformativeText(about_text)
+        about_dialog.exec()
+
+
+class GSAImage(QW.QWidget):
     def __init__(self,mode='local',parent=None):
         super(GSAImage,self).__init__(parent=parent)
         self.config = ConfigParams(mode=mode)
-        self.workingDirectory = 
+        self.workingDirectory = os.getcwd()
 
-        if config.mode == 'nanohub':
-            if 'TempGSA' not in os.listdir(os.getcwd()):
+        if self.config.mode == 'nanohub':
+            if 'TempGSA' not in os.listdir(self.workingDirectory):
                 os.mkdir('TempGSA')
             self.tempdir = os.path.join(os.getcwd(),'TempGSA')
             os.chdir(self.tempdir)
+            self.workingDirectory = os.path.join(self.workingDirectory,'TempGSA')
 
         self.mod_dict = {
         'Color Mask': ColorMask,
@@ -54,56 +104,86 @@ class GSAImage(QtWidgets.QMainWindow):
         for item in sorted(list(self.mod_dict)):
             self.modComboBox.addItem(item)
 
+        font = QG.QFont()
+        font.setPointSize(22)
+        font.setWeight(QG.QFont.ExtraBold)
 
-        self.addBtn = QtGui.QPushButton('Add')
+        self.addBtn = QG.QPushButton('+')
+        self.addBtn.setFont(font)
+        self.addBtn.setMaximumWidth(32)
+        self.addBtn.setMaximumHeight(32)
         self.addBtn.clicked.connect(lambda: self.addMod(mod=None))
 
-        self.removeBtn = QtGui.QPushButton('Remove')
+        self.removeBtn = QG.QPushButton('-')
+        self.removeBtn.setFont(font)
+        self.removeBtn.setMaximumWidth(32)
+        self.removeBtn.setMaximumHeight(32)
         self.removeBtn.clicked.connect(self.removeMod)
 
-        self.io_buttons = IO(imptext='Import Image',exptext='Export Image')
+        self.io_buttons = IO(
+            config=self.config,
+            imptext='Import Image',
+            exptext='Export Image',
+            ftype='image',
+            extension='png')
         self.io_buttons.importClicked.connect(self.importImage)
         self.io_buttons.exportClicked.connect(lambda: self.io_buttons.exportData.emit(self.image()))
 
         self.stackedControl = GStackedWidget()
-        self.mod_list = self.stackedControl.createListWidget()
+        self.mod_list = self.stackedControl.createListView()
+
+        self.mod_list.setIconSize(QC.QSize(96, 96))
+
+        self.stackedDisplay = QW.QStackedWidget()
+        self.stackedControl.currentChanged.connect(lambda idx: self.stackedDisplay.setCurrentIndex(idx))
+        self.stackedControl.widgetRemoved.connect(lambda idx:
+            self.stackedDisplay.removeWidget(self.stackedDisplay.widget(idx)))
+        self.stackedControl.currentChanged.connect(self.select)
+
+        self.dummyControlWidget = QW.QWidget()
+        self.toggleControl = QW.QStackedWidget()
+        self.toggleControl.addWidget(self.dummyControlWidget)
+        self.toggleControl.addWidget(self.stackedControl)
 
         self.mainImage = ImageWidget()
-        self.stackedDisplay = QtWidgets.QStackedWidget()
-        self.stackedDisplay.addWidget(self.mainImage)
-        self.stackedDisplay.addWidget(self.stackedControl)
+        self.toggleDisplay = QW.QStackedWidget()
+        self.toggleDisplay.addWidget(self.mainImage)
+        self.toggleDisplay.addWidget(self.stackedDisplay)
 
-        self.mod_list = self.stackedDisplay.createListWidget()
-        self.mod_list.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
-        self.mod_list.currentRowChanged.connect(lambda x: self.stackedControl.setCurrentIndex(x) if x==self.stackedControl.count()-1 else None)
+        layers = QG.QWidget()
+        layers.setFixedWidth(250)
+        mainLayout = QG.QGridLayout(layers)
+        # mainLayout.addWidget(self.io_buttons, 0,0,1,3)
+        mainLayout.addWidget(self.mod_list,2,0,1,3)
+        mainLayout.addWidget(self.modComboBox,3,1)
+        mainLayout.addWidget(self.addBtn,3,0)
+        mainLayout.addWidget(self.removeBtn,3,2)
 
-        self.wMain = QtGui.QWidget()
-        self.wMain.setFixedWidth(250)
-        self.mainLayout = QtGui.QGridLayout()
-        self.mainLayout.addWidget(self.io_buttons, 0,0,1,2)
-        self.mainLayout.addWidget(self.mod_list,2,0,1,2)
-        self.mainLayout.addWidget(self.addBtn, 3,0)
-        self.mainLayout.addWidget(self.removeBtn,3,1)
-        self.mainLayout.addWidget(self.modComboBox,4,0,1,2)
-        self.wMain.setLayout(self.mainLayout)
+        self.layout = QG.QGridLayout(self)
+        self.layout.addWidget(layers,0,0)
+        self.layout.addWidget(self.toggleDisplay,0,1)
+        self.layout.addWidget(self.toggleControl,0,2)
 
-        self.layout = QtGui.QGridLayout(self)
-        self.layout.addWidget(self.wMain,0,0)
-        self.layout.addWidget(self.stackedDisplay,0,1)
+    def importTrigger(self):
+        return self.io_buttons.importFile()
 
-    @errorCheck()
+    def exportTrigger(self):
+        self.io_buttons.requestExportData()
+
+    # @errorCheck(skip=testMode)
     def importImage(self,filepath):
+        self.clear()
         try:
             img = cv2.imread(filepath)
         except:
             raise IOError("Cannot read file %s"%os.path.basename(filepath))
-        mod = InitialImage()
-        mod.imageChanged.connect(lambda img: self.mainImage.setImage(img,levels=(0,255)))
-        mod.set_image(img)
-        self.setWindowTitle(os.path.basename(os.path.basename(filepath)))
-        self.addMod(mod)
+        if isinstance(img,np.ndarray):
+            mod = InitialImage()
+            mod.set_image(img)
+            self.setWindowTitle(os.path.basename(os.path.basename(filepath)))
+            self.addMod(mod)
 
-    @errorCheck()
+    @errorCheck(skip=testMode)
     def image(self,index=None):
         count = self.stackedControl.count()
         if count > 0:
@@ -120,26 +200,37 @@ class GSAImage(QtWidgets.QMainWindow):
         if self.stackedControl.count()>0:
             self.stackedControl.removeIndex(self.stackedControl.count()-1)
 
-    @errorCheck(error_text='Error adding layer!')
+    @errorCheck(error_text='Error adding layer!',skip=testMode)
     def addMod(self,mod=None):
-        if mod is None and self.stackedControl.count() > 0:
-            mod = self.mod_dict[self.modComboBox.value()](
-                self.stackedControl[self.stackedControl.count()-1],
-                properties={'mode':config.mode})
+        if mod is None:
+            if self.stackedControl.count() > 0:
+                mod = self.mod_dict[self.modComboBox.value()](
+                    self.stackedControl[self.stackedControl.count()-1],
+                    properties={'mode':self.config.mode})
+            else:
+                raise ValueError("You need to import an image before adding layers.")
         self.stackedControl.addWidget(
             mod,
-            name="%d %s"%(self.stackedControl.count(),mod.name()))
-        mod.imageChanged.connect(lambda img: self.mainImage.setImage(img,levels=(0,255)))
-        if self.mod_list.count() > 0:
-            self.mod_list.setCurrentRow(self.mod_list.count()-1)
+            name=mod.name(),
+            icon=mod.icon())
+        self.stackedDisplay.addWidget(mod.display())
+
+        index = self.stackedControl.count()-1
+        self.stackedControl.setCurrentIndex(index)
+
+        mod.imageChanged.connect(lambda image: self.stackedControl.setIcon(index,mod.icon()))
+        mod.emitImage()
 
     def select(self, index):
         if index == self.stackedControl.count()-1:
-            self.stackedDisplay.setCurrentIndex(1)
-            self.stackedControl.setCurrentIndex(index)
+            self.toggleDisplay.setCurrentIndex(1)
+            self.toggleControl.setCurrentIndex(1)
         else:
-            self.stackedDisplay.setCurrentIndex(0)
+            self.toggleDisplay.setCurrentIndex(0)
+            self.toggleControl.setCurrentIndex(0)
             self.mainImage.setImage(self.stackedControl[index].image(),levels=(0,255))
+        if index >= 0:
+            self.stackedControl[index].update_view()
 
     def widget(self):
         return self
@@ -147,32 +238,54 @@ class GSAImage(QtWidgets.QMainWindow):
     def run(self):
         self.show()
 
-class Modification(QtWidgets.QScrollArea):
+
+class Modification(QW.QScrollArea):
     """
     Abstract class for defining modifications to an image. Modifications form a linked list with each object
     inheriting an input Modification. In this way, images are modified with sequential changes. Modification
     objects should also connect to GSAImage's ImageItem, which contains the main image display so that item
     can be updated.
 
-    mod_in:         the Modification that the current object inherits.
-    img_item:       GSAImage's ImageItem.
+    inputMod:         the Modification that the current object inherits.
     properties:     a dictionary of properties that may be used for the modification.
     """
 
-    imageChanged = QtCore.pyqtSignal(object)
-    def __init__(self,mod_in=None,properties={},parent=None):
+    imageChanged = QC.pyqtSignal(object)
+    def __init__(self,inputMod=None,properties={},parent=None):
         super(Modification,self).__init__(parent=parent)
         self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.mod_in = mod_in
+        self.setHorizontalScrollBarPolicy(QC.Qt.ScrollBarAlwaysOff)
+        self.inputMod = inputMod
         self.properties = properties
-        if mod_in != None:
-            self.img_out = self.mod_in.image()
+
+        self._display = ImageWidget()
+        self.imageChanged.connect(lambda image: self._display.setImage(image,levels=(0,255)))
+        if inputMod is not None:
+            self.set_image(self.inputMod.image())
         else:
             self.img_out = None
 
     def display(self):
-        pass
+        return self._display
+
+    def emitImage(self):
+        self.imageChanged.emit(self.image())
+
+    def icon(self):
+        if self.img_out is not None:
+            pic = Image.fromarray(self.img_out)
+            # size = self.mod_list.iconSize()
+            # pic.thumbnail((size.width(),size.height()))
+
+            data = pic.convert("RGB").tobytes("raw","RGB")
+
+            img = QG.QImage(data, pic.size[0], pic.size[1], QG.QImage.Format_RGB888)
+            pix = QG.QPixmap.fromImage(img)
+            icon = QG.QIcon(pix)
+            icon.addPixmap(pix,QG.QIcon.Selected)
+
+            return icon
+        return QG.QIcon()
 
     def widget(self):
         """
@@ -203,19 +316,18 @@ class Modification(QtWidgets.QScrollArea):
         """
         self.update_image()
         self.imageChanged.emit(self.img_out)
-        self.img_item.setImage(self.img_out,levels=(0,255))
         return self.properties
     def delete_mod(self):
         """
         Deletes the modification and returns the inherited modification.
         """
-        return self.mod_in
+        return self.inputMod
     def tolist(self):
         """
         Converts linked list to list.
         """
-        if self.mod_in != None:
-            return self.mod_in.tolist() + [self]
+        if self.inputMod != None:
+            return self.inputMod.tolist() + [self]
         else:
             return [self]
     def back_traverse(self,n):
@@ -225,34 +337,34 @@ class Modification(QtWidgets.QScrollArea):
         n:              number of indices to traverse backwards on linked list.
         """
         if n != 0:
-            if self.mod_in == None:
+            if self.inputMod == None:
                 raise IndexError('Index out of range (n = %d)'%n)
             elif n != 0:
-                return self.mod_in.back_traverse(n-1)
+                return self.inputMod.back_traverse(n-1)
         elif n == 0:
             return self
     def root(self):
         """
         Gives the first Modification in linked list.
         """
-        if self.mod_in != None:
-            return self.mod_in.root()
+        if self.inputMod != None:
+            return self.inputMod.root()
         else:
             return self
     def length(self):
         """
         Gives the length of the linked list.
         """
-        if self.mod_in != None:
-            return self.mod_in.length()+1
+        if self.inputMod != None:
+            return self.inputMod.length()+1
         else:
             return 1
     def back_properties(self):
         """
         Gives a dictionary containing all properties of current and inherited Modifications.
         """
-        if self.mod_in != None:
-            d = self.mod_in.back_properties()
+        if self.inputMod != None:
+            d = self.inputMod.back_properties()
             d.update(self.properties)
             return d
         else:
@@ -261,12 +373,15 @@ class Modification(QtWidgets.QScrollArea):
             return d
 
 class InitialImage(Modification):
+    def __init__(self,*args,**kwargs):
+        super(InitialImage,self).__init__(*args,**kwargs)
+
     def name(self):
         return 'Initial Image'
 
 class RemoveScale(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(RemoveScale,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(RemoveScale,self).__init__(inputMod,properties)
 
     def name(self):
         return 'Remove Scale'
@@ -276,7 +391,7 @@ class RemoveScale(Modification):
         return np.array(pil_img.crop(box))
 
     def update_image(self,scale_location='Auto',tol=0.95):
-        img_array = self.mod_in.image()
+        img_array = self.inputMod.image()
         img = Image.fromarray(img_array)
         width,height = img.size
         crop_img = None
@@ -319,13 +434,14 @@ class RemoveScale(Modification):
         if crop_img:
             self.img_out = np.array(crop_img)
         else:
-            self.img_out = self.mod_in.image()
+            self.img_out = self.inputMod.image()
 
 
 class ColorMask(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(ColorMask,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(ColorMask,self).__init__(inputMod,properties)
         self.img_mask = None
+        self.img_item = pg.ImageItem(self.inputMod.image())
         self.img_hist = self.img_item.getHistogram()
 
         self.wHistPlot = None
@@ -344,12 +460,14 @@ class ColorMask(Modification):
         self.wHistPlot.setMouseEnabled(False,False)
         self.wHistPlot.setMaximumHeight(100)
 
+        self.control = QW.QWidget()
+
     def widget(self):
         return self.wHistPlot
 
     def update_image(self):
         minVal, maxVal = self.lrItem.getRegion()
-        img = self.mod_in.image()
+        img = self.inputMod.image()
         self.img_mask = np.zeros_like(img)
         self.img_mask[np.logical_and(img>minVal,img<maxVal)] = 1
         self.img_out = img*self.img_mask+(1-self.img_mask)*255
@@ -358,34 +476,34 @@ class ColorMask(Modification):
         return 'Color Mask'
 
 class CannyEdgeDetection(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(CannyEdgeDetection,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(CannyEdgeDetection,self).__init__(inputMod,properties)
 
-        self.low_thresh = int(max(self.mod_in.image().flatten())*.1)
-        self.high_thresh = int(max(self.mod_in.image().flatten())*.4)
+        self.low_thresh = int(max(self.inputMod.image().flatten())*.1)
+        self.high_thresh = int(max(self.inputMod.image().flatten())*.4)
         self.gauss_size = 5
-        self.wToolBox = pg.LayoutWidget()
-        self.wToolBox.layout.setAlignment(QtCore.Qt.AlignTop)
+        self.control = pg.LayoutWidget()
+        self.control.layout.setAlignment(QC.Qt.AlignTop)
 
-        self.wGaussEdit = QtGui.QLineEdit(str(self.gauss_size))
-        self.wGaussEdit.setValidator(QtGui.QIntValidator(3,51))
+        self.wGaussEdit = QG.QLineEdit(str(self.gauss_size))
+        self.wGaussEdit.setValidator(QG.QIntValidator(3,51))
         self.wGaussEdit.setFixedWidth(60)
 
-        self.wLowSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.wLowSlider = QG.QSlider(QC.Qt.Horizontal)
         self.wLowSlider.setMinimum(0)
         self.wLowSlider.setMaximum(255)
         self.wLowSlider.setSliderPosition(int(self.low_thresh))
-        self.wLowEdit = QtGui.QLineEdit(str(self.low_thresh))
+        self.wLowEdit = QG.QLineEdit(str(self.low_thresh))
         self.wLowEdit.setFixedWidth(60)
-        self.wLowEdit.setValidator(QtGui.QIntValidator(0,255))
+        self.wLowEdit.setValidator(QG.QIntValidator(0,255))
 
-        self.wHighSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.wHighSlider = QG.QSlider(QC.Qt.Horizontal)
         self.wHighSlider.setMinimum(0)
         self.wHighSlider.setMaximum(255)
         self.wHighSlider.setSliderPosition(int(self.high_thresh))
-        self.wHighEdit = QtGui.QLineEdit(str(self.high_thresh))
+        self.wHighEdit = QG.QLineEdit(str(self.high_thresh))
         self.wHighEdit.setFixedWidth(60)
-        self.wHighEdit.setValidator(QtGui.QIntValidator(0,255))
+        self.wHighEdit.setValidator(QG.QIntValidator(0,255))
 
         self.wGaussEdit.returnPressed.connect(self._update_sliders)
         self.wLowSlider.sliderReleased.connect(self._update_texts)
@@ -395,14 +513,14 @@ class CannyEdgeDetection(Modification):
         self.wHighSlider.sliderMoved.connect(self._update_texts)
         self.wHighEdit.returnPressed.connect(self._update_sliders)
 
-        self.wToolBox.addWidget(QtGui.QLabel('Gaussian Size'),0,0)
-        self.wToolBox.addWidget(QtGui.QLabel('Low Threshold'),1,0)
-        self.wToolBox.addWidget(QtGui.QLabel('High Threshold'),3,0)
-        self.wToolBox.addWidget(self.wGaussEdit,0,1)
-        self.wToolBox.addWidget(self.wLowEdit,1,1)
-        self.wToolBox.addWidget(self.wHighEdit,3,1)
-        self.wToolBox.addWidget(self.wLowSlider,2,0,1,2)
-        self.wToolBox.addWidget(self.wHighSlider,4,0,1,2)
+        self.control.addWidget(QG.QLabel('Gaussian Size'),0,0)
+        self.control.addWidget(QG.QLabel('Low Threshold'),1,0)
+        self.control.addWidget(QG.QLabel('High Threshold'),3,0)
+        self.control.addWidget(self.wGaussEdit,0,1)
+        self.control.addWidget(self.wLowEdit,1,1)
+        self.control.addWidget(self.wHighEdit,3,1)
+        self.control.addWidget(self.wLowSlider,2,0,1,2)
+        self.control.addWidget(self.wHighSlider,4,0,1,2)
 
     def name(self):
         return 'Canny Edge Detection'
@@ -429,22 +547,22 @@ class CannyEdgeDetection(Modification):
         self.update_view()
 
     def update_image(self):
-        self.img_out = cv2.GaussianBlur(self.mod_in.image(),(self.gauss_size,self.gauss_size),0)
+        self.img_out = cv2.GaussianBlur(self.inputMod.image(),(self.gauss_size,self.gauss_size),0)
         self.img_out = 255-cv2.Canny(self.img_out,self.low_thresh,self.high_thresh,L2gradient=True)
 
     def widget(self):
-        return self.wToolBox
+        return self.control
 
 class Dilation(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(Dilation,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(Dilation,self).__init__(inputMod,properties)
         self.size = 1
-        self.wToolBox = pg.LayoutWidget()
-        self.wToolBox.layout.setAlignment(QtCore.Qt.AlignTop)
-        self.wSizeEdit = QtGui.QLineEdit(str(self.size))
-        self.wSizeEdit.setValidator(QtGui.QIntValidator(1,20))
+        self.control = pg.LayoutWidget()
+        self.control.layout.setAlignment(QC.Qt.AlignTop)
+        self.wSizeEdit = QG.QLineEdit(str(self.size))
+        self.wSizeEdit.setValidator(QG.QIntValidator(1,20))
         self.wSizeEdit.setFixedWidth(60)
-        self.wSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.wSizeSlider = QG.QSlider(QC.Qt.Horizontal)
         self.wSizeSlider.setMinimum(1)
         self.wSizeSlider.setMaximum(20)
         self.wSizeSlider.setSliderPosition(int(self.size))
@@ -453,9 +571,9 @@ class Dilation(Modification):
         self.wSizeSlider.valueChanged.connect(self._update_texts)
         self.wSizeEdit.returnPressed.connect(self._update_sliders)
 
-        self.wToolBox.addWidget(QtGui.QLabel('Kernel Size'),0,0)
-        self.wToolBox.addWidget(self.wSizeEdit,0,1)
-        self.wToolBox.addWidget(self.wSizeSlider,1,0,1,2)
+        self.control.addWidget(QG.QLabel('Kernel Size'),0,0)
+        self.control.addWidget(self.wSizeEdit,0,1)
+        self.control.addWidget(self.wSizeSlider,1,0,1,2)
 
     def name(self):
         return 'Dilation'
@@ -471,21 +589,21 @@ class Dilation(Modification):
         self.update_view()
 
     def update_image(self):
-        self.img_out = cv2.erode(self.mod_in.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
+        self.img_out = cv2.erode(self.inputMod.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
 
     def widget(self):
-        return self.wToolBox
+        return self.control
 
 class Erosion(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(Erosion,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(Erosion,self).__init__(inputMod,properties)
         self.size = 1
-        self.wToolBox = pg.LayoutWidget()
-        self.wToolBox.layout.setAlignment(QtCore.Qt.AlignTop)
-        self.wSizeEdit = QtGui.QLineEdit(str(self.size))
-        self.wSizeEdit.setValidator(QtGui.QIntValidator(1,20))
+        self.control = pg.LayoutWidget()
+        self.control.layout.setAlignment(QC.Qt.AlignTop)
+        self.wSizeEdit = QG.QLineEdit(str(self.size))
+        self.wSizeEdit.setValidator(QG.QIntValidator(1,20))
         self.wSizeEdit.setFixedWidth(60)
-        self.wSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.wSizeSlider = QG.QSlider(QC.Qt.Horizontal)
         self.wSizeSlider.setMinimum(1)
         self.wSizeSlider.setMaximum(20)
         self.wSizeSlider.setSliderPosition(int(self.size))
@@ -494,9 +612,9 @@ class Erosion(Modification):
         self.wSizeSlider.valueChanged.connect(self._update_texts)
         self.wSizeEdit.returnPressed.connect(self._update_sliders)
 
-        self.wToolBox.addWidget(QtGui.QLabel('Kernel Size'),0,0)
-        self.wToolBox.addWidget(self.wSizeEdit,0,1)
-        self.wToolBox.addWidget(self.wSizeSlider,1,0,1,2)
+        self.control.addWidget(QG.QLabel('Kernel Size'),0,0)
+        self.control.addWidget(self.wSizeEdit,0,1)
+        self.control.addWidget(self.wSizeSlider,1,0,1,2)
 
     def name(self):
         return 'Erosion'
@@ -512,33 +630,33 @@ class Erosion(Modification):
         self.update_view()
 
     def update_image(self):
-        self.img_out = cv2.dilate(self.mod_in.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
+        self.img_out = cv2.dilate(self.inputMod.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
 
     def widget(self):
-        return self.wToolBox
+        return self.control
 
 class BinaryMask(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(BinaryMask,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(BinaryMask,self).__init__(inputMod,properties)
 
     def name(self):
         return 'Binary Mask'
 
     def update_image(self):
-        self.img_out = self.mod_in.image()
+        self.img_out = self.inputMod.image()
         self.img_out[self.img_out < 255] = 0
 
 class Blur(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(Blur,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(Blur,self).__init__(inputMod,properties)
         self.gauss_size = 5
         self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QtCore.Qt.AlignTop)
-        self.wGaussEdit = QtGui.QLineEdit(str(self.gauss_size))
+        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
+        self.wGaussEdit = QG.QLineEdit(str(self.gauss_size))
         self.wGaussEdit.setFixedWidth(100)
-        self.wGaussEdit.setValidator(QtGui.QIntValidator(3,51))
+        self.wGaussEdit.setValidator(QG.QIntValidator(3,51))
 
-        self.wLayout.addWidget(QtGui.QLabel('Gaussian Size:'),0,0)
+        self.wLayout.addWidget(QG.QLabel('Gaussian Size:'),0,0)
         self.wLayout.addWidget(self.wGaussEdit,0,1)
 
         self.update_view()
@@ -548,7 +666,7 @@ class Blur(Modification):
         self.gauss_size = int(self.wGaussEdit.text())
         self.gauss_size = self.gauss_size + 1 if self.gauss_size % 2 == 0 else self.gauss_size
         self.wGaussEdit.setText(str(self.gauss_size))
-        self.img_out = cv2.GaussianBlur(self.mod_in.image(),(self.gauss_size,self.gauss_size),0)
+        self.img_out = cv2.GaussianBlur(self.inputMod.image(),(self.gauss_size,self.gauss_size),0)
 
     def widget(self):
         return self.wLayout
@@ -557,25 +675,25 @@ class Blur(Modification):
         return 'Blur'
 
 class TemplateMatchingWidget(Modification):
-    imageChanged = QtCore.pyqtSignal(object)
-    def __init__(self,mod_in,img_item,vbox,mask_in=None,img_in=None,properties={},parent=None):
-        Modification.__init__(self,mod_in,img_item,properties,parent=parent)
+    imageChanged = QC.pyqtSignal(object)
+    def __init__(self,inputMod,img_item,vbox,mask_in=None,img_in=None,properties={},parent=None):
+        Modification.__init__(self,inputMod,properties,parent=parent)
         self._mask_in = mask_in
-        self._mask = np.zeros_like(self.mod_in.image(),dtype=bool)
+        self._mask = np.zeros_like(self.inputMod.image(),dtype=bool)
         if isinstance(img_in,np.ndarray):
             self.img_in = img_in
         else:
-            self.img_in = self.mod_in.image()
+            self.img_in = self.inputMod.image()
         self.img_in3d = np.dstack((self.img_in, self.img_in, self.img_in))
         self.roi_img = self.img_in3d.copy()
 
-        self.threshSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.threshSlider = QG.QSlider(QC.Qt.Horizontal)
         self.threshSlider.setMinimum(0)
         self.threshSlider.setMaximum(1000)
         self.threshSlider.setSliderPosition(100)
         self.threshSlider.valueChanged.connect(self.update_view)
 
-        self.sizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.sizeSlider = QG.QSlider(QC.Qt.Horizontal)
         self.sizeSlider.setMinimum(2)
         self.sizeSlider.setMaximum(30)
         self.sizeSlider.setSliderPosition(15)
@@ -592,12 +710,12 @@ class TemplateMatchingWidget(Modification):
         self.roi.sigRegionChangeFinished.connect(self.update_view)
         vbox.addItem(self.roi)
 
-        main_widget = QtWidgets.QWidget()
-        layout = QtGui.QGridLayout(self)
-        layout.setAlignment(QtCore.Qt.AlignTop)
-        layout.addWidget(QtWidgets.QLabel("Threshold:"),0,0)
+        main_widget = QW.QWidget()
+        layout = QG.QGridLayout(self)
+        layout.setAlignment(QC.Qt.AlignTop)
+        layout.addWidget(QW.QLabel("Threshold:"),0,0)
         layout.addWidget(self.threshSlider,0,1)
-        layout.addWidget(QtWidgets.QLabel("Template Size:"),1,0)
+        layout.addWidget(QW.QLabel("Template Size:"),1,0)
         layout.addWidget(self.sizeSlider,1,1)
         main_widget.setLayout(layout)
         
@@ -641,28 +759,28 @@ class TemplateMatchingWidget(Modification):
 
 
 class CustomFilter(Modification):
-    imageChanged = QtCore.pyqtSignal(object)
-    def __init__(self,mod_in,img_item,mask_in=None,img_in=None,properties={},parent=None):
-        Modification.__init__(self,mod_in,img_item,properties,parent=parent)
+    imageChanged = QC.pyqtSignal(object)
+    def __init__(self,inputMod,img_item,mask_in=None,img_in=None,properties={},parent=None):
+        Modification.__init__(self,inputMod,img_item,properties,parent=parent)
         self._mask_in = mask_in
-        self._mask = np.zeros_like(self.mod_in.image(),dtype=bool)
+        self._mask = np.zeros_like(self.inputMod.image(),dtype=bool)
         if isinstance(img_in,np.ndarray):
             self.img_in = img_in
         else:
-            self.img_in = self.mod_in.image()
+            self.img_in = self.inputMod.image()
         self.img_in3d = np.dstack((self.img_in, self.img_in, self.img_in))
         self.roi_img = self.img_in3d.copy()
 
-        self.sizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.sizeSlider = QG.QSlider(QC.Qt.Horizontal)
         self.sizeSlider.setMinimum(2)
         self.sizeSlider.setMaximum(100)
         self.sizeSlider.setSliderPosition(20)
         self.sizeSlider.valueChanged.connect(self.updateKernelCursor)
 
-        main_widget = QtWidgets.QWidget()
-        layout = QtGui.QGridLayout(self)
-        layout.setAlignment(QtCore.Qt.AlignTop)
-        layout.addWidget(QtWidgets.QLabel("Cursor Size:"),0,0)
+        main_widget = QW.QWidget()
+        layout = QG.QGridLayout(self)
+        layout.setAlignment(QC.Qt.AlignTop)
+        layout.addWidget(QW.QLabel("Cursor Size:"),0,0)
         layout.addWidget(self.sizeSlider,0,1)
         main_widget.setLayout(layout)
         
@@ -714,7 +832,7 @@ class CustomFilter(Modification):
 class EraseFilter(CustomFilter):
     def __init__(self,*args,**kwargs):
         CustomFilter.__init__(self,*args,**kwargs)
-        self._mask = np.ones_like(self.mod_in.image(),dtype=bool)
+        self._mask = np.ones_like(self.inputMod.image(),dtype=bool)
 
     def update_view(self,slices=None,mask=None):
         CustomFilter.update_view(self,slices,mask,comparator=np.logical_and)
@@ -723,25 +841,25 @@ class EraseFilter(CustomFilter):
         CustomFilter.updateKernelCursor(self,radius,kern_val=0)
 
 class ClusterFilter(Modification):
-    imageChanged = QtCore.pyqtSignal(object)
-    def __init__(self,mod_in,img_item,mask_in=None,img_in=None,properties={},parent=None):
-        Modification.__init__(self,mod_in,img_item,properties,parent=parent)
+    imageChanged = QC.pyqtSignal(object)
+    def __init__(self,inputMod,img_item,mask_in=None,img_in=None,properties={},parent=None):
+        Modification.__init__(self,inputMod,img_item,properties,parent=parent)
         self._clusters = None
         self._mask_in = mask_in
-        self._mask = np.zeros_like(self.mod_in.image(),dtype=bool)
+        self._mask = np.zeros_like(self.inputMod.image(),dtype=bool)
         if isinstance(img_in,np.ndarray):
             self.img_in = img_in
         else:
-            self.img_in = self.mod_in.image()
+            self.img_in = self.inputMod.image()
         self.img_in3d = np.dstack((self.img_in, self.img_in, self.img_in))
         self.roi_img = self.img_in.copy()
 
-        self.cluster_list = QtWidgets.QListWidget()
-        self.cluster_list.setSelectionMode(QtGui.QAbstractItemView.MultiSelection)
-        self.wsize_edit = QtWidgets.QLineEdit()
-        self.wsize_edit.setValidator(QtGui.QIntValidator(1,50))
+        self.cluster_list = QW.QListWidget()
+        self.cluster_list.setSelectionMode(QG.QAbstractItemView.MultiSelection)
+        self.wsize_edit = QW.QLineEdit()
+        self.wsize_edit.setValidator(QG.QIntValidator(1,50))
         self.wsize_edit.setText("15")
-        self.run_btn = QtWidgets.QPushButton("Run")
+        self.run_btn = QW.QPushButton("Run")
 
     def focus(self):
         pass
@@ -784,7 +902,7 @@ class ClusterFilter(Modification):
         selected_items = self.cluster_list.selectedItems()
         self._mask = np.zeros_like(self.img_in,dtype=bool)
         for item in selected_items:
-            self._mask[self._clusters==item.data(QtCore.Qt.UserRole)] = True
+            self._mask[self._clusters==item.data(QC.Qt.UserRole)] = True
         if self._mask_in is not None:
             self._mask = np.logical_or(self._mask,self._mask_in)
 
@@ -811,8 +929,8 @@ class ClusterFilter(Modification):
             order = np.argsort(fractions)[::-1]
 
             for label, fraction in zip(labels[order],fractions[order]):
-                item = QtGui.QListWidgetItem(str(fraction))
-                item.setData(QtCore.Qt.UserRole,label)
+                item = QG.QListWidgetItem(str(fraction))
+                item.setData(QC.Qt.UserRole,label)
                 self.cluster_list.addItem(item)
 
     def filter(self):
@@ -821,22 +939,22 @@ class ClusterFilter(Modification):
 class KMeansFilter(ClusterFilter):
     def __init__(self,*args,**kwargs):
         ClusterFilter.__init__(self,*args,**kwargs)
-        self.n_clusters_edit = QtWidgets.QLineEdit()
-        self.n_clusters_edit.setValidator(QtGui.QIntValidator(2,20))
+        self.n_clusters_edit = QW.QLineEdit()
+        self.n_clusters_edit.setValidator(QG.QIntValidator(2,20))
         self.n_clusters_edit.setText("2")
 
-        self.stride_edit = QtWidgets.QLineEdit()
-        self.stride_edit.setValidator(QtGui.QIntValidator(1,30))
+        self.stride_edit = QW.QLineEdit()
+        self.stride_edit.setValidator(QG.QIntValidator(1,30))
         self.stride_edit.setText("3")
 
-        main_widget = QtWidgets.QWidget()
-        layout = QtGui.QGridLayout(self)
-        layout.setAlignment(QtCore.Qt.AlignTop)
-        layout.addWidget(QtWidgets.QLabel("Window Size:"),0,0)
+        main_widget = QW.QWidget()
+        layout = QG.QGridLayout(self)
+        layout.setAlignment(QC.Qt.AlignTop)
+        layout.addWidget(QW.QLabel("Window Size:"),0,0)
         layout.addWidget(self.wsize_edit,0,1)
-        layout.addWidget(QtWidgets.QLabel("# Clusters:"),1,0)
+        layout.addWidget(QW.QLabel("# Clusters:"),1,0)
         layout.addWidget(self.n_clusters_edit,1,1)
-        layout.addWidget(QtWidgets.QLabel("Stride:"),2,0)
+        layout.addWidget(QW.QLabel("Stride:"),2,0)
         layout.addWidget(self.stride_edit,2,1)
         layout.addWidget(self.run_btn,3,0)
         layout.addWidget(self.cluster_list,4,0,1,2)
@@ -879,16 +997,16 @@ class KMeansFilter(ClusterFilter):
 class GMMFilter(ClusterFilter):
     def __init__(self,*args,**kwargs):
         ClusterFilter.__init__(self,*args,**kwargs)
-        self.n_components_edit = QtWidgets.QLineEdit()
-        self.n_components_edit.setValidator(QtGui.QIntValidator(2,20))
+        self.n_components_edit = QW.QLineEdit()
+        self.n_components_edit.setValidator(QG.QIntValidator(2,20))
         self.n_components_edit.setText("2")
 
-        main_widget = QtWidgets.QWidget()
-        layout = QtGui.QGridLayout(self)
-        layout.setAlignment(QtCore.Qt.AlignTop)
-        layout.addWidget(QtWidgets.QLabel("Window Size:"),0,0)
+        main_widget = QW.QWidget()
+        layout = QG.QGridLayout(self)
+        layout.setAlignment(QC.Qt.AlignTop)
+        layout.addWidget(QW.QLabel("Window Size:"),0,0)
         layout.addWidget(self.wsize_edit,0,1)
-        layout.addWidget(QtWidgets.QLabel("# Components:"),1,0)
+        layout.addWidget(QW.QLabel("# Components:"),1,0)
         layout.addWidget(self.n_components_edit,1,1)
         layout.addWidget(self.run_btn,2,0)
         layout.addWidget(self.cluster_list,3,0,1,2)
@@ -934,8 +1052,8 @@ class GMMFilter(ClusterFilter):
 
 
 class FilterPattern(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(FilterPattern,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,img_item,properties={}):
+        super(FilterPattern,self).__init__(inputMod,img_item,properties)
 
         self._maskClasses = OrderedDict()
         self._maskClasses['Template Match'] = TemplateMatchingWidget
@@ -944,14 +1062,14 @@ class FilterPattern(Modification):
         self._maskClasses['Custom'] = CustomFilter
         self._maskClasses['Erase'] = EraseFilter
 
-        self.wFilterType = QtWidgets.QComboBox()
+        self.wFilterType = QW.QComboBox()
         self.wFilterType.addItems(list(self._maskClasses.keys()))
 
-        self.wFilterList = QtGui.QListWidget()
-        self.wFilterList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
-        self.wAdd = QtGui.QPushButton('Add Filter')
-        self.wRemove = QtGui.QPushButton('Remove Layer')
-        self.wExportMask = QtGui.QPushButton('Export Mask')
+        self.wFilterList = QG.QListWidget()
+        self.wFilterList.setSelectionMode(QG.QAbstractItemView.SingleSelection)
+        self.wAdd = QG.QPushButton('Add Filter')
+        self.wRemove = QG.QPushButton('Remove Layer')
+        self.wExportMask = QG.QPushButton('Export Mask')
 
         self.wImgBox = pg.GraphicsLayoutWidget()
         self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
@@ -962,24 +1080,24 @@ class FilterPattern(Modification):
         self.wImgBox_VB.sigResized.connect(lambda v: self.wImgROI.updateCursor())
         self.wImgBox_VB.sigTransformChanged.connect(lambda v: self.wImgROI.updateCursor())
         
-        self.blankWidget = QtWidgets.QWidget()
-        self.stackedControl = QtWidgets.QStackedWidget()
+        self.blankWidget = QW.QWidget()
+        self.stackedControl = QW.QStackedWidget()
 
-        self.toggleControl = QtWidgets.QStackedWidget()
+        self.toggleControl = QW.QStackedWidget()
         self.toggleControl.addWidget(self.blankWidget)
         self.toggleControl.addWidget(self.stackedControl)
 
-        layer_layout = QtGui.QGridLayout()
-        layer_layout.setAlignment(QtCore.Qt.AlignTop)
+        layer_layout = QG.QGridLayout()
+        layer_layout.setAlignment(QC.Qt.AlignTop)
         layer_layout.addWidget(self.wFilterList,0,0,6,1)
         layer_layout.addWidget(self.wFilterType,0,1)
         layer_layout.addWidget(self.wAdd,1,1)
         layer_layout.addWidget(self.wRemove,2,1)
         layer_layout.addWidget(self.wExportMask,4,1)
         
-        main_widget = QtWidgets.QWidget()
-        main_layout = QtGui.QGridLayout(main_widget)
-        main_layout.setAlignment(QtCore.Qt.AlignTop)
+        main_widget = QW.QWidget()
+        main_layout = QG.QGridLayout(main_widget)
+        main_layout.setAlignment(QC.Qt.AlignTop)
 
         main_layout.addLayout(layer_layout,0,0)
         main_layout.addWidget(self.toggleControl,1,0)
@@ -1008,7 +1126,7 @@ class FilterPattern(Modification):
             return self.img_out.copy()
 
     def update_view(self,value=None):   
-        if isinstance(value,QtGui.QListWidgetItem):
+        if isinstance(value,QG.QListWidgetItem):
             row = self.wFilterList.row(value)
         elif isinstance(value,int):
             row = value
@@ -1045,13 +1163,13 @@ class FilterPattern(Modification):
             in_mod = self.stackedControl.widget(self.stackedControl.count()-1)
             mask_in = in_mod._mask
         else:
-            in_mod = self.mod_in
+            in_mod = self.inputMod
             mask_in = None
 
         if method == 'Template Match':
-            mask_widget = maskClass(mod_in=in_mod,img_item=self.wImgROI,vbox=self.wImgBox_VB,mask_in=mask_in,img_in=self.mod_in.image())
+            mask_widget = maskClass(inputMod=in_mod,img_item=self.wImgROI,vbox=self.wImgBox_VB,mask_in=mask_in,img_in=self.inputMod.image())
         else:
-            mask_widget = maskClass(mod_in=in_mod,img_item=self.wImgROI,mask_in=mask_in,img_in=self.mod_in.image())
+            mask_widget = maskClass(inputMod=in_mod,img_item=self.wImgROI,mask_in=mask_in,img_in=self.inputMod.image())
 
         mask_widget.imageChanged.connect(lambda img: self.img_item.setImage(img,levels=(0,255)))
         mask_widget.imageChanged.connect(lambda img: self.update_properties())
@@ -1079,7 +1197,7 @@ class FilterPattern(Modification):
         default_name = "untitled"
         if self.properties['mode'] == 'local':
             path = os.path.join(os.getcwd(),default_name+"_mask.png")
-            name = QtWidgets.QFileDialog.getSaveFileName(None, 
+            name = QW.QFileDialog.getSaveFileName(None, 
                 "Export Image", 
                 path, 
                 "PNG File (*.png)",
@@ -1098,10 +1216,10 @@ class FilterPattern(Modification):
             return
 
 class Crop(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(Crop,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,img_item,properties={}):
+        super(Crop,self).__init__(inputMod,img_item,properties)
         self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QtCore.Qt.AlignTop)
+        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
 
         self.wImgBox = pg.GraphicsLayoutWidget()
         self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
@@ -1136,8 +1254,8 @@ class Crop(Modification):
         return 'Crop'
 
 class DomainCenters(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(DomainCenters,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,img_item,properties={}):
+        super(DomainCenters,self).__init__(inputMod,img_item,properties)
         self.domain_centers = OrderedDict()
         self.mask = None
         self.radius = 10
@@ -1148,7 +1266,7 @@ class DomainCenters(Modification):
                     self.mask = np.array(prop['mask_total'])
         if self.mask is None:
             raise RuntimeError("Cannot find a mask! Use 'Filter Pattern' to generate one and try again.")
-        self.img_out = self.mod_in.image()
+        self.img_out = self.inputMod.image()
 
         self.wImgBox = pg.GraphicsLayoutWidget()
         self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
@@ -1161,14 +1279,14 @@ class DomainCenters(Modification):
         self.wImgROI.setClickOnly(True)
         self.updateKernel(self.radius)
 
-        self.domain_list = QtWidgets.QListWidget()
-        self.deleteBtn = QtWidgets.QPushButton("Delete")
-        self.exportBtn = QtWidgets.QPushButton("Export")
+        self.domain_list = QW.QListWidget()
+        self.deleteBtn = QW.QPushButton("Delete")
+        self.exportBtn = QW.QPushButton("Export")
 
-        main_widget = QtWidgets.QWidget()
+        main_widget = QW.QWidget()
 
-        layer_layout = QtGui.QGridLayout(main_widget)
-        layer_layout.setAlignment(QtCore.Qt.AlignTop)
+        layer_layout = QG.QGridLayout(main_widget)
+        layer_layout.setAlignment(QC.Qt.AlignTop)
         layer_layout.addWidget(self.domain_list,0,0)
         layer_layout.addWidget(self.deleteBtn,1,0)
         layer_layout.addWidget(self.wImgBox,2,0)
@@ -1196,7 +1314,7 @@ class DomainCenters(Modification):
     def export(self):
         default_name = "untitled.json"
         if self.properties['mode'] == 'local':
-            name = QtWidgets.QFileDialog.getSaveFileName(None, 
+            name = QW.QFileDialog.getSaveFileName(None, 
                 "Export", 
                 path, 
                 "JSON File (*.json)",
@@ -1266,12 +1384,12 @@ class DomainCenters(Modification):
         self.img_item.setImage(img3d,levels=(0,255))
 
 class DrawScale(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(DrawScale,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,img_item,properties={}):
+        super(DrawScale,self).__init__(inputMod,img_item,properties)
         self.properties['scale'] = 1
 
         self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QtCore.Qt.AlignTop)
+        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
 
         self.wImgBox = pg.GraphicsLayoutWidget()
         self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
@@ -1281,25 +1399,25 @@ class DrawScale(Modification):
         self.wImgBox_VB.setAspectLocked(True)
         # self.wImgBox_VB.setMouseEnabled(False,False)
 
-        self.wPixels = QtGui.QLabel('1')
+        self.wPixels = QG.QLabel('1')
         self.wPixels.setFixedWidth(60)
-        self.wScale = QtGui.QLabel('1')
+        self.wScale = QG.QLabel('1')
         self.wScale.setFixedWidth(60)
 
-        self.wLengthEdit = QtGui.QLineEdit(str(self.properties['scale']))
+        self.wLengthEdit = QG.QLineEdit(str(self.properties['scale']))
         self.wLengthEdit.setFixedWidth(60)
-        self.wLengthEdit.setValidator(QtGui.QDoubleValidator())
-        x,y = self.mod_in.image().shape
+        self.wLengthEdit.setValidator(QG.QDoubleValidator())
+        x,y = self.inputMod.image().shape
         self.roi = pg.LineSegmentROI([[int(x/2),int(y/4)],[int(x/2),int(3*y/4)]])
         self.wImgBox_VB.addItem(self.roi)
 
-        self.wLayout.addWidget(QtGui.QLabel('# Pixels:'),0,0)
+        self.wLayout.addWidget(QG.QLabel('# Pixels:'),0,0)
         self.wLayout.addWidget(self.wPixels,0,1)
 
-        self.wLayout.addWidget(QtGui.QLabel('Length (um):'),1,0)
+        self.wLayout.addWidget(QG.QLabel('Length (um):'),1,0)
         self.wLayout.addWidget(self.wLengthEdit,1,1)
 
-        self.wLayout.addWidget(QtGui.QLabel('Scale (um/px):'),2,0)
+        self.wLayout.addWidget(QG.QLabel('Scale (um/px):'),2,0)
         self.wLayout.addWidget(self.wScale,2,1)
 
         self.wLayout.addWidget(self.wImgBox,3,0,4,4)
@@ -1309,7 +1427,7 @@ class DrawScale(Modification):
         self.wLengthEdit.textChanged.connect(self.update_view)
 
     def update_image(self):
-        self.properties['num_pixels'] = len(self.roi.getArrayRegion(self.mod_in.image(),self.img_item))
+        self.properties['num_pixels'] = len(self.roi.getArrayRegion(self.inputMod.image(),self.img_item))
         self.wPixels.setNum(self.properties['num_pixels'])
         self.properties['scale_length_um'] = float(self.wLengthEdit.text())
         if self.properties['num_pixels'] != 0:
@@ -1323,12 +1441,12 @@ class DrawScale(Modification):
         return 'Draw Scale'
 
 class Erase(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(Erase,self).__init__(mod_in,img_item,properties)
-        self.img_out = self.mod_in.image()
+    def __init__(self,inputMod,img_item,properties={}):
+        super(Erase,self).__init__(inputMod,img_item,properties)
+        self.img_out = self.inputMod.image()
         self.eraser_size = 10
         self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QtCore.Qt.AlignTop)
+        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
 
         self.wImgBox = pg.GraphicsLayoutWidget()
         self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
@@ -1337,7 +1455,7 @@ class Erase(Modification):
         self.wImgBox_VB.addItem(self.wImgROI)
         self.wImgBox_VB.setAspectLocked(True)
 
-        self.wSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.wSizeSlider = QG.QSlider(QC.Qt.Horizontal)
         self.wSizeSlider.setMinimum(1)
         self.wSizeSlider.setMaximum(100)
         self.wSizeSlider.setSliderPosition(self.eraser_size)
@@ -1346,7 +1464,7 @@ class Erase(Modification):
         self.wImgROI.setDrawKernel(kern, mask=None, center=(int(self.eraser_size/2),int(self.eraser_size/2)), mode='set')
         self.wSizeSlider.valueChanged.connect(self.update_view)
 
-        self.wLayout.addWidget(QtGui.QLabel('Eraser Size:'),0,0)
+        self.wLayout.addWidget(QG.QLabel('Eraser Size:'),0,0)
         self.wLayout.addWidget(self.wSizeSlider,0,1)
         self.wLayout.addWidget(self.wImgBox,1,0,4,4)
 
@@ -1363,33 +1481,18 @@ class Erase(Modification):
         return 'Erase'
 
 class SobelFilter(Modification):
-    def __init__(self,mod_in,img_item,properties={}):
-        super(SobelFilter,self).__init__(mod_in,img_item,properties)
+    def __init__(self,inputMod,img_item,properties={}):
+        super(SobelFilter,self).__init__(inputMod,img_item,properties)
         self.sobel_size = 3
         self.convolution = np.zeros(60)
 
         self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QtCore.Qt.AlignTop)
+        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
 
-        self.wSobelSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.wSobelSizeSlider = QG.QSlider(QC.Qt.Horizontal)
         self.wSobelSizeSlider.setMinimum(1)
         self.wSobelSizeSlider.setMaximum(3)
         self.wSobelSizeSlider.setSliderPosition(2)
-
-        self.wMinLengthSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-        self.wMinLengthSlider.setMinimum(3)
-        self.wMinLengthSlider.setMaximum(10)
-        self.wMinLengthSlider.setSliderPosition(3)
-
-        self.wSNRSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-        self.wSNRSlider.setMinimum(1)
-        self.wSNRSlider.setMaximum(100)
-        self.wSNRSlider.setSliderPosition(20)
-
-        self.wNoisePercSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
-        self.wNoisePercSlider.setMinimum(1)
-        self.wNoisePercSlider.setMaximum(99)
-        self.wNoisePercSlider.setSliderPosition(10)
 
         self.wHistPlot = pg.PlotWidget(title='Angle Histogram',pen=pg.mkPen(color='k',width=4))
         self.wHistPlot.setXRange(0,180)
@@ -1399,17 +1502,17 @@ class SobelFilter(Modification):
         self.wConvPlot.setXRange(0,60)
         self.wConvPlot.hideAxis('left')
 
-        self.wStd = QtGui.QLabel('')
+        self.wStd = QG.QLabel('')
 
-        self.exportHistBtn = QtGui.QPushButton('Export Histogram')
-        self.exportConvBtn = QtGui.QPushButton('Export Convolution')
+        self.exportHistBtn = QG.QPushButton('Export Histogram')
+        self.exportConvBtn = QG.QPushButton('Export Convolution')
 
-        self.wLayout.addWidget(QtGui.QLabel('Size:'),0,0)
+        self.wLayout.addWidget(QG.QLabel('Size:'),0,0)
         self.wLayout.addWidget(self.wSobelSizeSlider,0,1)
 
         self.wLayout.addWidget(self.wHistPlot,4,0,4,4)
         self.wLayout.addWidget(self.wConvPlot,8,0,4,4)
-        self.wLayout.addWidget(QtGui.QLabel('Shifted St. Dev.:'),12,0)
+        self.wLayout.addWidget(QG.QLabel('Shifted St. Dev.:'),12,0)
         self.wLayout.addWidget(self.wStd,12,1)
         self.wLayout.addWidget(self.exportHistBtn,13,0)
         self.wLayout.addWidget(self.exportConvBtn,13,1)
@@ -1427,7 +1530,7 @@ class SobelFilter(Modification):
         exporter.parameters()['width'] = 1024
         if self.properties['mode'] == 'local':
             path = os.path.join(os.getcwd(),default_name+".png")
-            name = QtWidgets.QFileDialog.getSaveFileName(None, 
+            name = QW.QFileDialog.getSaveFileName(None, 
                 "Export Image", 
                 path, 
                 "PNG File (*.png)",
@@ -1448,8 +1551,8 @@ class SobelFilter(Modification):
     def update_image(self):
         self.sobel_size = 2*int(self.wSobelSizeSlider.value())+1
 
-        self.dx = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=1,dy=0,ksize=self.sobel_size)
-        self.dy = cv2.Sobel(self.mod_in.image(),ddepth=cv2.CV_64F,dx=0,dy=1,ksize=self.sobel_size)
+        self.dx = cv2.Sobel(self.inputMod.image(),ddepth=cv2.CV_64F,dx=1,dy=0,ksize=self.sobel_size)
+        self.dy = cv2.Sobel(self.inputMod.image(),ddepth=cv2.CV_64F,dx=0,dy=1,ksize=self.sobel_size)
 
         self.properties['theta'] = np.arctan2(self.dy,self.dx)*180/np.pi
         self.properties['magnitude'] = np.sqrt(self.dx**2+self.dy**2)
@@ -1507,13 +1610,16 @@ class SobelFilter(Modification):
         return 'Sobel Filter'
 
 class SmartImageItem(pg.ImageItem):
-    imageUpdateSignal = QtCore.pyqtSignal(object,object)
-    imageFinishSignal = QtCore.pyqtSignal()
+    imageUpdateSignal = QC.pyqtSignal(object,object)
+    imageFinishSignal = QC.pyqtSignal()
     def __init__(self,*args,**kwargs):
         super(SmartImageItem,self).__init__(*args,**kwargs)
         self.base_cursor = self.cursor()
         self.radius = None
         self.clickOnly = False
+
+    def setImage(self,img,*args,**kwargs):
+        super(SmartImageItem,self).setImage(img.T,*args,**kwargs)
 
     def drawAt(self, pos, ev=None):
         pos = [int(pos.x()), int(pos.y())]
@@ -1549,22 +1655,22 @@ class SmartImageItem(pg.ImageItem):
             self.radius = radius
         if self.radius:
             radius = self.radius
-            o = self.mapToDevice(QtCore.QPointF(0,0))
-            x = self.mapToDevice(QtCore.QPointF(1,0))
+            o = self.mapToDevice(QC.QPointF(0,0))
+            x = self.mapToDevice(QC.QPointF(1,0))
             # d = max(1, int(1.0 / Point(x-o).length()))
             d = 1.0 / Point(x-o).length()
             radius = int(radius/d)
-            pix = QtGui.QPixmap(4*radius+1,4*radius+1)
-            pix.fill(QtCore.Qt.transparent)
+            pix = QG.QPixmap(4*radius+1,4*radius+1)
+            pix.fill(QC.Qt.transparent)
 
-            paint = QtGui.QPainter(pix)
-            paint.setRenderHint(QtGui.QPainter.Antialiasing)
-            pt = QtCore.QPointF(2*radius,2*radius)
-            paint.setBrush(QtCore.Qt.transparent)
+            paint = QG.QPainter(pix)
+            paint.setRenderHint(QG.QPainter.Antialiasing)
+            pt = QC.QPointF(2*radius,2*radius)
+            paint.setBrush(QC.Qt.transparent)
             paint.drawEllipse(pt,radius,radius)
             paint.end()
             
-            self.setCursor(QtGui.QCursor(pix))
+            self.setCursor(QG.QCursor(pix))
 
     def disconnect(self):
         sigs = [
@@ -1576,7 +1682,7 @@ class SmartImageItem(pg.ImageItem):
                 sig.disconnect()
 
     def mouseDragEvent(self, ev):
-        if ev.button() != QtCore.Qt.LeftButton:
+        if ev.button() != QC.Qt.LeftButton:
             ev.ignore()
             return
         elif self.drawKernel is not None and not self.clickOnly:
@@ -1586,10 +1692,10 @@ class SmartImageItem(pg.ImageItem):
                 self.imageFinishSignal.emit()
 
     def mouseClickEvent(self, ev):
-        if ev.button() == QtCore.Qt.RightButton:
+        if ev.button() == QC.Qt.RightButton:
             if self.raiseContextMenu(ev):
                 ev.accept()
-        if self.drawKernel is not None and ev.button() == QtCore.Qt.LeftButton:
+        if self.drawKernel is not None and ev.button() == QC.Qt.LeftButton:
             self.drawAt(ev.pos(), ev)
 
     def setClickOnly(self,flag):
@@ -1605,9 +1711,10 @@ def main():
         mode = 'local'
     if mode not in ['nanohub','local']:
         mode = 'local'
-    app = QtGui.QApplication([])
-    img_analyzer = GSAImage(mode=mode)
-    img_analyzer.run()
+    app = QG.QApplication([])
+    # img_analyzer = GSAImage(mode=mode)
+    # img_analyzer.run()
+    main = Main()
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
