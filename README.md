@@ -3,6 +3,9 @@
 # GSA-Image
 Image analysis tool code repository for the Graphene Synthesis Analysis collaboration
 
+## Planning Documents
+[1.2.0 -final](https://github.com/nanoMFG/GSA-Image/blob/planning/doc/SPD/GSAImage_SPD_v1.2.0.md)
+
 ## Getting Started
 
 ##### On nanoHUB
