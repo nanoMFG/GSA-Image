@@ -7,9 +7,9 @@ from skimage import util
 from skimage import color
 import functools
 from skimage.draw import circle as skcircle
-from PyQt5 import QtGui as QG
-from PyQt5 import QtWidgets as QW
-from PyQt5 import QtCore as QC
+from PyQt5 import QtGui
+from PyQt5 import QtWidgets
+from PyQt5 import QtCore
 import pyqtgraph as pg
 import pyqtgraph.exporters
 from pyqtgraph import Point
@@ -21,41 +21,64 @@ from sklearn.cluster import MiniBatchKMeans, DBSCAN
 from sklearn.mixture import GaussianMixture
 import matplotlib.pyplot as plt
 from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
-from util.gwidgets import GStackedWidget, ImageWidget, StandardDisplay
+from util.gwidgets import GStackedWidget, ImageWidget, StandardDisplay,HeaderLabel,SubheaderLabel,MaxSpacer,SmartImageItem,SpacerMaker,ControlImageWidget
 from util.io import IO
+from util.icons import Icon
 from io import BytesIO
 import traceback
 
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('imageAxisOrder', 'row-major')
 
+QW=QtWidgets
+QC=QtCore
+QG=QtGui
+
 testMode = True
 
 ## TODO: add toolbar and/or menu bar
 class Main(QW.QMainWindow):
+    """
+    Main window containing the GSAImage widget. Adds menu bar / tool bar functionality.
+    """
     def __init__(self,mode='local',*args,**kwargs):
         super(Main,self).__init__(*args,**kwargs)
 
         self.mainWidget = GSAImage(mode=mode)
         self.setCentralWidget(self.mainWidget)
 
+        # building main menu
         mainMenu = self.menuBar()
         mainMenu.setNativeMenuBar(False)
 
-        importAction = QG.QAction("&Import Image",self)
+        importAction = QG.QAction("&Import",self)
+        importAction.setIcon(Icon('download.svg'))
         importAction.triggered.connect(self.mainWidget.importTrigger)
-        exportAction = QG.QAction("&Export Image",self)
+
+        exportAction = QG.QAction("&Export",self)
+        exportAction.setIcon(Icon('upload.svg'))
         exportAction.triggered.connect(self.mainWidget.exportTrigger)
+
+        clearAction = QG.QAction("&Clear",self)
+        clearAction.setIcon(Icon('trash.svg'))
+        clearAction.triggered.connect(self.mainWidget.clear)
+
+        exitAction = QG.QAction("&Exit",self)
+        exitAction.setIcon(Icon('log-out.svg'))
+        exitAction.triggered.connect(self.close)
         
         fileMenu = mainMenu.addMenu('&File')
         fileMenu.addAction(importAction)
         fileMenu.addAction(exportAction)
+        fileMenu.addAction(clearAction)
+        fileMenu.addAction(exitAction)
 
-        helpAction = QG.QAction("&About",self)
-        helpAction.triggered.connect(self.showAboutDialog)
+        aboutAction = QG.QAction("&About",self)
+        aboutAction.setIcon(Icon('info.svg'))
+        aboutAction.triggered.connect(self.showAboutDialog)
 
         helpMenu = mainMenu.addMenu('&Help')
-        helpMenu.addAction(helpAction)
+        helpMenu.addAction(aboutAction)
 
         self.show()
 
@@ -64,6 +87,7 @@ class Main(QW.QMainWindow):
         about_dialog.setText("About This Tool")
         about_dialog.setWindowModality(QC.Qt.WindowModal)
 
+        # Needs text
         about_text = """
         """
 
@@ -76,6 +100,7 @@ class GSAImage(QW.QWidget):
         super(GSAImage,self).__init__(parent=parent)
         self.config = ConfigParams(mode=mode)
         self.workingDirectory = os.getcwd()
+        self.controlWidth = 250
 
         if self.config.mode == 'nanohub':
             if 'TempGSA' not in os.listdir(self.workingDirectory):
@@ -84,6 +109,8 @@ class GSAImage(QW.QWidget):
             os.chdir(self.tempdir)
             self.workingDirectory = os.path.join(self.workingDirectory,'TempGSA')
 
+        # Ordered dictionary links to modifications. Used ordered dict so that
+        # controlling combobox order more natural 
         self.mod_dict = {
         'Color Mask': ColorMask,
         'Canny Edge Detector': CannyEdgeDetection,
@@ -104,73 +131,99 @@ class GSAImage(QW.QWidget):
         for item in sorted(list(self.mod_dict)):
             self.modComboBox.addItem(item)
 
-        font = QG.QFont()
-        font.setPointSize(22)
-        font.setWeight(QG.QFont.ExtraBold)
-
-        self.addBtn = QG.QPushButton('+')
-        self.addBtn.setFont(font)
+        # Add / remove modification buttons
+        self.addBtn = QG.QPushButton()
+        self.addBtn.setIcon(Icon("plus.svg"))
         self.addBtn.setMaximumWidth(32)
         self.addBtn.setMaximumHeight(32)
         self.addBtn.clicked.connect(lambda: self.addMod(mod=None))
 
-        self.removeBtn = QG.QPushButton('-')
-        self.removeBtn.setFont(font)
+        self.removeBtn = QG.QPushButton()
+        self.removeBtn.setIcon(Icon("minus.svg"))
         self.removeBtn.setMaximumWidth(32)
         self.removeBtn.setMaximumHeight(32)
         self.removeBtn.clicked.connect(self.removeMod)
 
+        # I/O buttons not used bc of file menu. However the class is used for facilitating import/export
         self.io_buttons = IO(
             config=self.config,
             imptext='Import Image',
             exptext='Export Image',
             ftype='image',
             extension='png')
-        self.io_buttons.importClicked.connect(self.importImage)
-        self.io_buttons.exportClicked.connect(lambda: self.io_buttons.exportData.emit(self.image()))
 
+        # stackedControl contains the modification widget
         self.stackedControl = GStackedWidget()
+        # mod_list is the sidebar list w/ thumbnails
         self.mod_list = self.stackedControl.createListView()
-
         self.mod_list.setIconSize(QC.QSize(96, 96))
 
+        # stackedDisplay holds the displays for each widget (Modification.display())
         self.stackedDisplay = QW.QStackedWidget()
-        self.stackedControl.currentChanged.connect(lambda idx: self.stackedDisplay.setCurrentIndex(idx))
-        self.stackedControl.widgetRemoved.connect(lambda idx:
-            self.stackedDisplay.removeWidget(self.stackedDisplay.widget(idx)))
-        self.stackedControl.currentChanged.connect(self.select)
+        self.stackedDisplay.setSizePolicy(QtWidgets.QSizePolicy.Expanding,QtWidgets.QSizePolicy.Expanding)
 
+        # defaultDisplay shown if selection is not last item in stack (to prevent editing prior layers)
+        # defaultDisplay is set to the image from a particular selected layer in GSAImage.select
+        self.defaultDisplay = ImageWidget()
+        self.defaultDisplay.setMinimumWidth(int(self.defaultDisplay.sizeHint().width()*.75))
+        self.controlDisplay = ControlImageWidget(self.defaultDisplay)
+
+        # dummyControlWidget shown if selection is not last item in stack (to prevent editing prior layers)
         self.dummyControlWidget = QW.QWidget()
         self.toggleControl = QW.QStackedWidget()
         self.toggleControl.addWidget(self.dummyControlWidget)
         self.toggleControl.addWidget(self.stackedControl)
 
-        self.mainImage = ImageWidget()
         self.toggleDisplay = QW.QStackedWidget()
-        self.toggleDisplay.addWidget(self.mainImage)
+        self.toggleDisplay.addWidget(self.defaultDisplay)
         self.toggleDisplay.addWidget(self.stackedDisplay)
 
-        layers = QG.QWidget()
-        layers.setFixedWidth(250)
-        mainLayout = QG.QGridLayout(layers)
-        # mainLayout.addWidget(self.io_buttons, 0,0,1,3)
-        mainLayout.addWidget(self.mod_list,2,0,1,3)
-        mainLayout.addWidget(self.modComboBox,3,1)
-        mainLayout.addWidget(self.addBtn,3,0)
-        mainLayout.addWidget(self.removeBtn,3,2)
+        self.mod_list.setFixedWidth(250)
+        layerLayout = QG.QGridLayout()
+        layerLayout.addWidget(HeaderLabel('Layers'),0,0)
+        layerLayout.addWidget(self.mod_list,2,0,1,3)
+        layerLayout.addWidget(self.modComboBox,3,0)
+        layerLayout.addWidget(self.addBtn,3,2)
+        layerLayout.addWidget(self.removeBtn,3,1)
+
+        controlLayout = QG.QGridLayout()
+        controlLabel = HeaderLabel('Control')
+        controlLabel.setSizePolicy(QW.QSizePolicy.MinimumExpanding,QW.QSizePolicy.Preferred)
+        controlLabel.setMinimumWidth(self.controlWidth)
+        controlLayout.addWidget(controlLabel,0,0)
+        controlLayout.addWidget(self.toggleControl,1,0)
+
+        displayLayout = QG.QGridLayout()
+        displayLayout.addWidget(HeaderLabel(),0,0)
+        displayLayout.addWidget(self.toggleDisplay,1,0)
+        displayLayout.addWidget(self.controlDisplay,2,0)
 
         self.layout = QG.QGridLayout(self)
-        self.layout.addWidget(layers,0,0)
-        self.layout.addWidget(self.toggleDisplay,0,1)
-        self.layout.addWidget(self.toggleControl,0,2)
+        self.layout.addLayout(layerLayout,0,0)
+        self.layout.addLayout(displayLayout,0,1)
+        self.layout.addLayout(controlLayout,0,2)
 
+        self.io_buttons.importClicked.connect(self.importImage)
+        self.io_buttons.exportClicked.connect(lambda: self.io_buttons.exportData.emit(self.image()))
+
+        # linking stackedDisplay to stackedControl so that items are selected/removed simultaneously.
+        self.stackedControl.currentChanged.connect(lambda idx: self.stackedDisplay.setCurrentIndex(idx))
+        self.stackedControl.widgetRemoved.connect(lambda idx:
+            self.stackedDisplay.removeWidget(self.stackedDisplay.widget(idx)))
+
+        # GSAImage.select controls toggling show / don't show stacked widgets
+        self.stackedControl.currentChanged.connect(self.select)
+
+    # Trigger function to allow called import file from main window
     def importTrigger(self):
         return self.io_buttons.importFile()
 
+    # Trigger function to allow called export file from main window
     def exportTrigger(self):
         self.io_buttons.requestExportData()
 
-    # @errorCheck(skip=testMode)
+    # opens file specified by IO importClicked signal
+    @errorCheck()
     def importImage(self,filepath):
         self.clear()
         try:
@@ -178,12 +231,13 @@ class GSAImage(QW.QWidget):
         except:
             raise IOError("Cannot read file %s"%os.path.basename(filepath))
         if isinstance(img,np.ndarray):
-            mod = InitialImage()
-            mod.set_image(img)
+            mod = InitialImage(width=self.controlWidth)
+            mod.setImage(img)
             self.setWindowTitle(os.path.basename(os.path.basename(filepath)))
             self.addMod(mod)
 
-    @errorCheck(skip=testMode)
+    # returns image for modification at index. if index is none, returns last image in list.
+    @errorCheck()
     def image(self,index=None):
         count = self.stackedControl.count()
         if count > 0:
@@ -191,7 +245,7 @@ class GSAImage(QW.QWidget):
                 index = count-1
             return self.stackedControl[index].image()
         else:
-            raise IOError("No image to export.")
+            raise IOError("No image to return.")
 
     def clear(self):
         self.stackedControl.clear()
@@ -206,29 +260,33 @@ class GSAImage(QW.QWidget):
             if self.stackedControl.count() > 0:
                 mod = self.mod_dict[self.modComboBox.value()](
                     self.stackedControl[self.stackedControl.count()-1],
+                    width=self.controlWidth,
                     properties={'mode':self.config.mode})
             else:
                 raise ValueError("You need to import an image before adding layers.")
+        # Adds modification to stackedControl and display to stackedDisplay
+        self.stackedDisplay.addWidget(mod.display())
         self.stackedControl.addWidget(
             mod,
             name=mod.name(),
-            icon=mod.icon())
-        self.stackedDisplay.addWidget(mod.display())
+            icon=mod.icon(self.mod_list.iconSize()))
 
         index = self.stackedControl.count()-1
         self.stackedControl.setCurrentIndex(index)
 
-        mod.imageChanged.connect(lambda image: self.stackedControl.setIcon(index,mod.icon()))
+        mod.imageChanged.connect(lambda image: self.stackedControl.setIcon(index,mod.icon(self.mod_list.iconSize())))
         mod.emitImage()
 
     def select(self, index):
-        if index == self.stackedControl.count()-1:
+        if index == self.stackedControl.count()-1 and index>=0:
             self.toggleDisplay.setCurrentIndex(1)
             self.toggleControl.setCurrentIndex(1)
+            self.controlDisplay.setImageWidget(self.stackedDisplay.widget(index))
         else:
             self.toggleDisplay.setCurrentIndex(0)
             self.toggleControl.setCurrentIndex(0)
-            self.mainImage.setImage(self.stackedControl[index].image(),levels=(0,255))
+            self.defaultDisplay.setImage(self.stackedControl[index].image(),levels=(0,255))
+            self.controlDisplay.setImageWidget(self.defaultDisplay)
         if index >= 0:
             self.stackedControl[index].update_view()
 
@@ -242,40 +300,73 @@ class GSAImage(QW.QWidget):
 class Modification(QW.QScrollArea):
     """
     Abstract class for defining modifications to an image. Modifications form a linked list with each object
-    inheriting an input Modification. In this way, images are modified with sequential changes. Modification
-    objects should also connect to GSAImage's ImageItem, which contains the main image display so that item
-    can be updated.
+    inheriting an input Modification. In this way, images are modified with sequential changes. 
 
-    inputMod:         the Modification that the current object inherits.
-    properties:     a dictionary of properties that may be used for the modification.
+    inputMod:           (Modification) the Modification that the current object inherits.
+    properties:         (dict) a dictionary of properties that may be used for the modification.
+
+    Signals:
+    imageChanged:       (np.ndarray) Signal sent when modification image changes. Returns new image.
+    displayChanged:     (NewDisplay, OldDisplay) Signal sent when display is changed. Returns new display and old display.
+
+
+    Subclassing:
+    If a different display is to be used for GSAImage.stackedDisplay, subclasses should use Modification.setDisplay
+    to use a different display and typically the imageChanged signal should connect to it in order to update it. 
     """
 
     imageChanged = QC.pyqtSignal(object)
-    def __init__(self,inputMod=None,properties={},parent=None):
+    displayChanged = QC.pyqtSignal(object,object)
+    def __init__(self,inputMod=None,width=None,properties={},parent=None):
         super(Modification,self).__init__(parent=parent)
+        if isinstance(width,int):
+            self.setMinimumWidth(width)
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(QC.Qt.ScrollBarAlwaysOff)
         self.inputMod = inputMod
         self.properties = properties
 
         self._display = ImageWidget()
-        self.imageChanged.connect(lambda image: self._display.setImage(image,levels=(0,255)))
+        self.imageChanged.connect(self._display.setImage)
+
         if inputMod is not None:
-            self.set_image(self.inputMod.image())
+            self.setImage(self.inputMod.image())
         else:
             self.img_out = None
 
     def display(self):
+        """
+        Returns the display widget (usually an ImageWidget instance). The display is what is 
+        added to GSAImage.stackedDisplay (the main big image area). It is updated by the 
+        imageChanged signal unless reimplemented for another purpose.
+        """
         return self._display
+
+    def setDisplay(self,display,connectSignal=True):
+        try:
+            pass
+            # self.imageChanged.disconnect()
+        except:
+            pass
+        # display.setMaximumWidth(300)
+        self._display, oldDisplay = display, self._display
+
+        if connectSignal:
+            self.imageChanged.connect(self._display.setImage)
+        self.displayChanged.emit(self._display,oldDisplay)
+
+        return oldDisplay
 
     def emitImage(self):
         self.imageChanged.emit(self.image())
 
-    def icon(self):
+    def icon(self,qsize):
+        """
+        Returns a QIcon thumbnail of size dictated by QSize.
+        """
         if self.img_out is not None:
             pic = Image.fromarray(self.img_out)
-            # size = self.mod_list.iconSize()
-            # pic.thumbnail((size.width(),size.height()))
+            pic.thumbnail((qsize.width(),qsize.height()))
 
             data = pic.convert("RGB").tobytes("raw","RGB")
 
@@ -292,14 +383,17 @@ class Modification(QW.QScrollArea):
         Returns the Modification's widget.
         """
         return self
-    def image(self):
+    def image(self,copy=True):
         """
         Returns the output image after modifications are applied.
         """
-        return self.img_out.copy()
+        if copy:
+            return self.img_out.copy()
+        else:
+            return self.img_out
     def name(self):
         return 'Default Modification'
-    def set_image(self,img):
+    def setImage(self,img):
         """
         Sets the output image manually. Only necessary for initializing.
         """
@@ -380,8 +474,8 @@ class InitialImage(Modification):
         return 'Initial Image'
 
 class RemoveScale(Modification):
-    def __init__(self,inputMod,properties={}):
-        super(RemoveScale,self).__init__(inputMod,properties)
+    def __init__(self,*args,**kwargs):
+        super(RemoveScale,self).__init__(*args,**kwargs)
 
     def name(self):
         return 'Remove Scale'
@@ -438,32 +532,44 @@ class RemoveScale(Modification):
 
 
 class ColorMask(Modification):
-    def __init__(self,inputMod,properties={}):
-        super(ColorMask,self).__init__(inputMod,properties)
+    def __init__(self,*args,**kwargs):
+        super(ColorMask,self).__init__(*args,**kwargs)
         self.img_mask = None
-        self.img_item = pg.ImageItem(self.inputMod.image())
-        self.img_hist = self.img_item.getHistogram()
+        self.img_hist = self.display().imageItem().getHistogram()
 
-        self.wHistPlot = None
+        self.histPlot = None
         self.lrItem = None
 
-        self.wHistPlot = pg.PlotWidget()
-        self.wHistPlot.plot(*self.img_hist)
-        self.wHistPlot.setXRange(0,255)
-        self.wHistPlot.hideAxis('left')
+        self.histPlot = pg.PlotWidget()
+        self.histPlot.plot(*self.img_hist,
+            pen=pg.mkPen(color='k',width=5),
+            fillLevel=0,
+            brush=(0,0,255,150))
+        self.histPlot.getAxis('bottom').setTicks([[(0,'0'),(255,'255')],[]])
+        self.histPlot.setXRange(0,255)
+        self.histPlot.setLabel(axis='bottom',text='Pixel Intensity')
+        self.histPlot.hideAxis('left')
 
-        self.lrItem = pg.LinearRegionItem((0,255),bounds=(0,255))
+        self.lrItem = pg.LinearRegionItem((0,255),bounds=(0,255),pen=pg.mkPen(color='r',width=5))
         self.lrItem.sigRegionChanged.connect(self.update_view)
         self.lrItem.sigRegionChangeFinished.connect(self.update_view)
 
-        self.wHistPlot.addItem(self.lrItem)
-        self.wHistPlot.setMouseEnabled(False,False)
-        self.wHistPlot.setMaximumHeight(100)
+        self.histPlot.addItem(self.lrItem)
+        self.histPlot.setMouseEnabled(False,False)
+        self.histPlot.setMaximumHeight(100)
 
-        self.control = QW.QWidget()
+        layout = QG.QGridLayout(self)
+        layout.addWidget(self.histPlot,1,0,QC.Qt.AlignTop)
+
+        help = QW.QLabel("Drag the red edges of the blue region to set pixel intensity bounds.")
+        help.setWordWrap(True)
+        layout.addWidget(help,2,0)
+
+        layout.setAlignment(QC.Qt.AlignTop)
+
 
     def widget(self):
-        return self.wHistPlot
+        return self.histPlot
 
     def update_image(self):
         minVal, maxVal = self.lrItem.getRegion()
@@ -476,73 +582,73 @@ class ColorMask(Modification):
         return 'Color Mask'
 
 class CannyEdgeDetection(Modification):
-    def __init__(self,inputMod,properties={}):
+    def __init__(self,*args,**kwargs):
         super(CannyEdgeDetection,self).__init__(inputMod,properties)
 
         self.low_thresh = int(max(self.inputMod.image().flatten())*.1)
         self.high_thresh = int(max(self.inputMod.image().flatten())*.4)
         self.gauss_size = 5
-        self.control = pg.LayoutWidget()
-        self.control.layout.setAlignment(QC.Qt.AlignTop)
 
-        self.wGaussEdit = QG.QLineEdit(str(self.gauss_size))
-        self.wGaussEdit.setValidator(QG.QIntValidator(3,51))
-        self.wGaussEdit.setFixedWidth(60)
+        self.gaussEdit = QG.QLineEdit(str(self.gauss_size))
+        self.gaussEdit.setValidator(QG.QIntValidator(3,51))
+        self.gaussEdit.setFixedWidth(60)
 
-        self.wLowSlider = QG.QSlider(QC.Qt.Horizontal)
-        self.wLowSlider.setMinimum(0)
-        self.wLowSlider.setMaximum(255)
-        self.wLowSlider.setSliderPosition(int(self.low_thresh))
-        self.wLowEdit = QG.QLineEdit(str(self.low_thresh))
-        self.wLowEdit.setFixedWidth(60)
-        self.wLowEdit.setValidator(QG.QIntValidator(0,255))
+        self.lowSlider = QG.QSlider(QC.Qt.Horizontal)
+        self.lowSlider.setMinimum(0)
+        self.lowSlider.setMaximum(255)
+        self.lowSlider.setSliderPosition(int(self.low_thresh))
+        self.lowEdit = QG.QLineEdit(str(self.low_thresh))
+        self.lowEdit.setFixedWidth(60)
+        self.lowEdit.setValidator(QG.QIntValidator(0,255))
 
-        self.wHighSlider = QG.QSlider(QC.Qt.Horizontal)
-        self.wHighSlider.setMinimum(0)
-        self.wHighSlider.setMaximum(255)
-        self.wHighSlider.setSliderPosition(int(self.high_thresh))
-        self.wHighEdit = QG.QLineEdit(str(self.high_thresh))
-        self.wHighEdit.setFixedWidth(60)
-        self.wHighEdit.setValidator(QG.QIntValidator(0,255))
+        self.highSlider = QG.QSlider(QC.Qt.Horizontal)
+        self.highSlider.setMinimum(0)
+        self.highSlider.setMaximum(255)
+        self.highSlider.setSliderPosition(int(self.high_thresh))
+        self.highEdit = QG.QLineEdit(str(self.high_thresh))
+        self.highEdit.setFixedWidth(60)
+        self.highEdit.setValidator(QG.QIntValidator(0,255))
 
-        self.wGaussEdit.returnPressed.connect(self._update_sliders)
-        self.wLowSlider.sliderReleased.connect(self._update_texts)
-        self.wLowSlider.sliderMoved.connect(self._update_texts)
-        self.wLowEdit.returnPressed.connect(self._update_sliders)
-        self.wHighSlider.sliderReleased.connect(self._update_texts)
-        self.wHighSlider.sliderMoved.connect(self._update_texts)
-        self.wHighEdit.returnPressed.connect(self._update_sliders)
+        self.gaussEdit.returnPressed.connect(self._update_sliders)
+        self.lowSlider.sliderReleased.connect(self._update_texts)
+        self.lowSlider.sliderMoved.connect(self._update_texts)
+        self.lowEdit.returnPressed.connect(self._update_sliders)
+        self.highSlider.sliderReleased.connect(self._update_texts)
+        self.highSlider.sliderMoved.connect(self._update_texts)
+        self.highEdit.returnPressed.connect(self._update_sliders)
 
-        self.control.addWidget(QG.QLabel('Gaussian Size'),0,0)
-        self.control.addWidget(QG.QLabel('Low Threshold'),1,0)
-        self.control.addWidget(QG.QLabel('High Threshold'),3,0)
-        self.control.addWidget(self.wGaussEdit,0,1)
-        self.control.addWidget(self.wLowEdit,1,1)
-        self.control.addWidget(self.wHighEdit,3,1)
-        self.control.addWidget(self.wLowSlider,2,0,1,2)
-        self.control.addWidget(self.wHighSlider,4,0,1,2)
+        layout = QG.QGridLayout(self)
+        layout.addWidget(QG.QLabel('Gaussian Size'),0,0)
+        layout.addWidget(QG.QLabel('Low Threshold'),1,0)
+        layout.addWidget(QG.QLabel('High Threshold'),3,0)
+        layout.addWidget(self.gaussEdit,0,1)
+        layout.addWidget(self.lowEdit,1,1)
+        layout.addWidget(self.highEdit,3,1)
+        layout.addWidget(self.lowSlider,2,0,1,2)
+        layout.addWidget(self.highSlider,4,0,1,2)
+        layout.setAlignment(QC.Qt.AlignTop)
 
     def name(self):
         return 'Canny Edge Detection'
 
     def _update_sliders(self):
-        self.gauss_size = int(self.wGaussEdit.text())
+        self.gauss_size = int('0'+self.gaussEdit.text())
         self.gauss_size = self.gauss_size + 1 if self.gauss_size % 2 == 0 else self.gauss_size
-        self.wGaussEdit.setText(str(self.gauss_size))
-        self.low_thresh = int(self.wLowEdit.text())
-        self.high_thresh = int(self.wHighEdit.text())
+        self.gaussEdit.setText(str(self.gauss_size))
+        self.low_thresh = int('0'+self.lowEdit.text())
+        self.high_thresh = int('0'+self.highEdit.text())
 
-        self.wLowSlider.setSliderPosition(self.low_thresh)
-        self.wHighSlider.setSliderPosition(self.high_thresh)
+        self.lowSlider.setSliderPosition(self.low_thresh)
+        self.highSlider.setSliderPosition(self.high_thresh)
 
         self.update_view()
 
     def _update_texts(self):
-        self.low_thresh = int(self.wLowSlider.value())
-        self.high_thresh = int(self.wHighSlider.value())
+        self.low_thresh = int(self.lowSlider.value())
+        self.high_thresh = int(self.highSlider.value())
 
-        self.wLowEdit.setText(str(self.low_thresh))
-        self.wHighEdit.setText(str(self.high_thresh))
+        self.lowEdit.setText(str(self.low_thresh))
+        self.highEdit.setText(str(self.high_thresh))
 
         self.update_view()
 
@@ -551,41 +657,40 @@ class CannyEdgeDetection(Modification):
         self.img_out = 255-cv2.Canny(self.img_out,self.low_thresh,self.high_thresh,L2gradient=True)
 
     def widget(self):
-        return self.control
+        return self
 
 class Dilation(Modification):
     def __init__(self,inputMod,properties={}):
         super(Dilation,self).__init__(inputMod,properties)
         self.size = 1
-        self.control = pg.LayoutWidget()
-        self.control.layout.setAlignment(QC.Qt.AlignTop)
-        self.wSizeEdit = QG.QLineEdit(str(self.size))
-        self.wSizeEdit.setValidator(QG.QIntValidator(1,20))
-        self.wSizeEdit.setFixedWidth(60)
-        self.wSizeSlider = QG.QSlider(QC.Qt.Horizontal)
-        self.wSizeSlider.setMinimum(1)
-        self.wSizeSlider.setMaximum(20)
-        self.wSizeSlider.setSliderPosition(int(self.size))
+        self.sizeEdit = QG.QLineEdit(str(self.size))
+        self.sizeEdit.setValidator(QG.QIntValidator(1,20))
+        self.sizeEdit.setFixedWidth(60)
+        self.sizeSlider = QG.QSlider(QC.Qt.Horizontal)
+        self.sizeSlider.setMinimum(1)
+        self.sizeSlider.setMaximum(20)
+        self.sizeSlider.setSliderPosition(int(self.size))
 
-        # self.wSizeSlider.sliderReleased.connect(self._update_texts)
-        self.wSizeSlider.valueChanged.connect(self._update_texts)
-        self.wSizeEdit.returnPressed.connect(self._update_sliders)
+        self.sizeSlider.valueChanged.connect(self._update_texts)
+        self.sizeEdit.returnPressed.connect(self._update_sliders)
 
-        self.control.addWidget(QG.QLabel('Kernel Size'),0,0)
-        self.control.addWidget(self.wSizeEdit,0,1)
-        self.control.addWidget(self.wSizeSlider,1,0,1,2)
+        layout = QG.QGridLayout(self)
+        layout.addWidget(QG.QLabel('Kernel Size'),0,0)
+        layout.addWidget(self.sizeEdit,0,1)
+        layout.addWidget(self.sizeSlider,1,0,1,2)
+        layout.setAlignment(QC.Qt.AlignTop)
 
     def name(self):
         return 'Dilation'
 
     def _update_sliders(self):
-        self.size = int(self.wSizeEdit.text())
-        self.wSizeSlider.setSliderPosition(self.size)
+        self.size = int('0'+self.sizeEdit.text())
+        self.sizeSlider.setSliderPosition(self.size)
         self.update_view()
 
     def _update_texts(self):
-        self.size = int(self.wSizeSlider.value())
-        self.wSizeEdit.setText(str(self.size))
+        self.size = int(self.sizeSlider.value())
+        self.sizeEdit.setText(str(self.size))
         self.update_view()
 
     def update_image(self):
@@ -595,49 +700,48 @@ class Dilation(Modification):
         return self.control
 
 class Erosion(Modification):
-    def __init__(self,inputMod,properties={}):
-        super(Erosion,self).__init__(inputMod,properties)
+    def __init__(self,*args,**kwargs):
+        super(Erosion,self).__init__(*args,**kwargs)
         self.size = 1
-        self.control = pg.LayoutWidget()
-        self.control.layout.setAlignment(QC.Qt.AlignTop)
-        self.wSizeEdit = QG.QLineEdit(str(self.size))
-        self.wSizeEdit.setValidator(QG.QIntValidator(1,20))
-        self.wSizeEdit.setFixedWidth(60)
-        self.wSizeSlider = QG.QSlider(QC.Qt.Horizontal)
-        self.wSizeSlider.setMinimum(1)
-        self.wSizeSlider.setMaximum(20)
-        self.wSizeSlider.setSliderPosition(int(self.size))
+        self.sizeEdit = QG.QLineEdit(str(self.size))
+        self.sizeEdit.setValidator(QG.QIntValidator(1,20))
+        self.sizeEdit.setFixedWidth(60)
+        self.sizeSlider = QG.QSlider(QC.Qt.Horizontal)
+        self.sizeSlider.setMinimum(1)
+        self.sizeSlider.setMaximum(20)
+        self.sizeSlider.setSliderPosition(int(self.size))
 
-        # self.wSizeSlider.sliderReleased.connect(self._update_texts)
-        self.wSizeSlider.valueChanged.connect(self._update_texts)
-        self.wSizeEdit.returnPressed.connect(self._update_sliders)
+        self.sizeSlider.valueChanged.connect(self._update_texts)
+        self.sizeEdit.returnPressed.connect(self._update_sliders)
 
-        self.control.addWidget(QG.QLabel('Kernel Size'),0,0)
-        self.control.addWidget(self.wSizeEdit,0,1)
-        self.control.addWidget(self.wSizeSlider,1,0,1,2)
+        layout = QG.QGridLayout(self)
+        layout.addWidget(QG.QLabel('Kernel Size'),0,0)
+        layout.addWidget(self.sizeEdit,0,1)
+        layout.addWidget(self.sizeSlider,1,0,1,2)
+        layout.setAlignment(QC.Qt.AlignTop)
 
     def name(self):
         return 'Erosion'
 
     def _update_sliders(self):
-        self.size = int(self.wSizeEdit.text())
-        self.wSizeSlider.setSliderPosition(self.size)
+        self.size = int('0'+self.sizeEdit.text())
+        self.sizeSlider.setSliderPosition(self.size)
         self.update_view()
 
     def _update_texts(self):
-        self.size = int(self.wSizeSlider.value())
-        self.wSizeEdit.setText(str(self.size))
+        self.size = int(self.sizeSlider.value())
+        self.sizeEdit.setText(str(self.size))
         self.update_view()
 
     def update_image(self):
         self.img_out = cv2.dilate(self.inputMod.image(),np.ones((self.size,self.size),np.uint8),iterations=1)
 
     def widget(self):
-        return self.control
+        return self
 
 class BinaryMask(Modification):
-    def __init__(self,inputMod,properties={}):
-        super(BinaryMask,self).__init__(inputMod,properties)
+    def __init__(self,*args,**kwargs):
+        super(BinaryMask,self).__init__(*args,**kwargs)
 
     def name(self):
         return 'Binary Mask'
@@ -647,39 +751,64 @@ class BinaryMask(Modification):
         self.img_out[self.img_out < 255] = 0
 
 class Blur(Modification):
-    def __init__(self,inputMod,properties={}):
-        super(Blur,self).__init__(inputMod,properties)
+    def __init__(self,*args,**kwargs):
+        super(Blur,self).__init__(*args,**kwargs)
         self.gauss_size = 5
-        self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
-        self.wGaussEdit = QG.QLineEdit(str(self.gauss_size))
-        self.wGaussEdit.setFixedWidth(100)
-        self.wGaussEdit.setValidator(QG.QIntValidator(3,51))
+        self.gaussEdit = QG.QLineEdit(str(self.gauss_size))
+        self.gaussEdit.setFixedWidth(100)
+        self.gaussEdit.setValidator(QG.QIntValidator(3,51))
 
-        self.wLayout.addWidget(QG.QLabel('Gaussian Size:'),0,0)
-        self.wLayout.addWidget(self.wGaussEdit,0,1)
+        layout = QG.QGridLayout(self)
+        layout.addWidget(QG.QLabel('Gaussian Size:'),0,0)
+        layout.addWidget(self.gaussEdit,0,1)
+        layout.setAlignment(QC.Qt.AlignTop)
 
+        self.gaussEdit.returnPressed.connect(self.update_view)
         self.update_view()
-        self.wGaussEdit.returnPressed.connect(self.update_view)
 
     def update_image(self):
-        self.gauss_size = int(self.wGaussEdit.text())
+        self.gauss_size = int('0'+self.gaussEdit.text())
         self.gauss_size = self.gauss_size + 1 if self.gauss_size % 2 == 0 else self.gauss_size
-        self.wGaussEdit.setText(str(self.gauss_size))
+        self.gaussEdit.setText(str(self.gauss_size))
         self.img_out = cv2.GaussianBlur(self.inputMod.image(),(self.gauss_size,self.gauss_size),0)
 
     def widget(self):
-        return self.wLayout
+        return self
 
     def name(self):
         return 'Blur'
 
-class TemplateMatchingWidget(Modification):
-    imageChanged = QC.pyqtSignal(object)
-    def __init__(self,inputMod,img_item,vbox,mask_in=None,img_in=None,properties={},parent=None):
-        Modification.__init__(self,inputMod,properties,parent=parent)
+class FilterModification(Modification):
+    maskChanged = QC.pyqtSignal(object)
+    def __init__(self,sequential=True,*args,**kwargs):
+        super(Modification,self).__init__(*args,**kwargs)
+        self._mask_in = np.array([])
+        self._mask_out = np.array([])
+        self.sequential = sequential
+
+        if hasattr(self.inputMod,mask) and callable(self.inputMod.mask):
+            self._mask_in = self.inputMod.mask()
+        if hasattr(self.inputMod,maskChanged) and isinstance(self.inputMod.maskChanged,QC.pyqtSignal):
+            self.inputMod.maskChanged.connect(self.setMask)
+
+        self.workingImage = ImageWidget()
+        self.setDisplay(self.workingImage,connectSignal=False)
+
+    def setMask(self,mask):
+        self._mask_in = mask
+
+    def mask(self,copy=True):
+        if copy:
+            return self._mask_out.copy()
+        else:
+            return self._mask_out
+
+class TemplateMatchingWidget(FilterModification):
+    def __init__(self,*args,**kwargs):
+        FilterModification.__init__(self,sequential=False,*args,**kwargs)
         self._mask_in = mask_in
         self._mask = np.zeros_like(self.inputMod.image(),dtype=bool)
+        self.img_item=img_item
         if isinstance(img_in,np.ndarray):
             self.img_in = img_in
         else:
@@ -763,6 +892,7 @@ class CustomFilter(Modification):
     def __init__(self,inputMod,img_item,mask_in=None,img_in=None,properties={},parent=None):
         Modification.__init__(self,inputMod,img_item,properties,parent=parent)
         self._mask_in = mask_in
+        self.img_item = img_item
         self._mask = np.zeros_like(self.inputMod.image(),dtype=bool)
         if isinstance(img_in,np.ndarray):
             self.img_in = img_in
@@ -846,6 +976,7 @@ class ClusterFilter(Modification):
         Modification.__init__(self,inputMod,img_item,properties,parent=parent)
         self._clusters = None
         self._mask_in = mask_in
+        self.img_item = img_item
         self._mask = np.zeros_like(self.inputMod.image(),dtype=bool)
         if isinstance(img_in,np.ndarray):
             self.img_in = img_in
@@ -1052,8 +1183,8 @@ class GMMFilter(ClusterFilter):
 
 
 class FilterPattern(Modification):
-    def __init__(self,inputMod,img_item,properties={}):
-        super(FilterPattern,self).__init__(inputMod,img_item,properties)
+    def __init__(self,inputMod,properties={}):
+        super(FilterPattern,self).__init__(inputMod,properties)
 
         self._maskClasses = OrderedDict()
         self._maskClasses['Template Match'] = TemplateMatchingWidget
@@ -1071,14 +1202,17 @@ class FilterPattern(Modification):
         self.wRemove = QG.QPushButton('Remove Layer')
         self.wExportMask = QG.QPushButton('Export Mask')
 
-        self.wImgBox = pg.GraphicsLayoutWidget()
-        self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
-        self.wImgROI = SmartImageItem()
-        self.wImgROI.setImage(self.img_item.image,levels=(0,255))
-        self.wImgBox_VB.addItem(self.wImgROI)
-        self.wImgBox_VB.setAspectLocked(True)
-        self.wImgBox_VB.sigResized.connect(lambda v: self.wImgROI.updateCursor())
-        self.wImgBox_VB.sigTransformChanged.connect(lambda v: self.wImgROI.updateCursor())
+        self.filterImage = ImageWidget(smart=True,mouseEnabled=(True,True))
+        self.filterViewBox = self.filterImage.viewBox()
+        self.filterImageItem = self.filterImage.imageItem()
+        print(self.inputMod.image().shape)
+        self.filterImage.setImage(self.inputMod.image()[:,::-1],levels=(0,255))
+        self.filterViewBox.sigResized.connect(lambda v: self.filterImageItem.updateCursor())
+        self.filterViewBox.sigTransformChanged.connect(lambda v: self.filterImageItem.updateCursor())
+        self.setDisplay(self.filterImage)
+
+        self.displayImage = ImageWidget(mouseEnabled=(True,True))
+        self.imageChanged.connect(lambda image: self.displayImage.setImage(image,levels=(0,255)))
         
         self.blankWidget = QW.QWidget()
         self.stackedControl = QW.QStackedWidget()
@@ -1088,22 +1222,18 @@ class FilterPattern(Modification):
         self.toggleControl.addWidget(self.stackedControl)
 
         layer_layout = QG.QGridLayout()
-        layer_layout.setAlignment(QC.Qt.AlignTop)
         layer_layout.addWidget(self.wFilterList,0,0,6,1)
         layer_layout.addWidget(self.wFilterType,0,1)
         layer_layout.addWidget(self.wAdd,1,1)
         layer_layout.addWidget(self.wRemove,2,1)
         layer_layout.addWidget(self.wExportMask,4,1)
+        layer_layout.setAlignment(QC.Qt.AlignTop)
         
-        main_widget = QW.QWidget()
-        main_layout = QG.QGridLayout(main_widget)
-        main_layout.setAlignment(QC.Qt.AlignTop)
-
+        main_layout = QG.QGridLayout(self)
         main_layout.addLayout(layer_layout,0,0)
         main_layout.addWidget(self.toggleControl,1,0)
-        main_layout.addWidget(self.wImgBox,2,0)
-
-        self.setWidget(main_widget)
+        main_layout.addWidget(self.displayImage,2,0)
+        main_layout.setAlignment(QC.Qt.AlignTop)
 
         self.wFilterList.currentRowChanged.connect(self.update_view)
         self.wFilterList.itemActivated.connect(self.update_view)
@@ -1149,11 +1279,11 @@ class FilterPattern(Modification):
             else:
                 self.toggleControl.setCurrentWidget(self.blankWidget)
 
-            self.img_item.setImage(widget.image(),levels=(0,255))
+            self.displayImage.setImage(widget.image(),levels=(0,255))
         else:
             self.toggleControl.setCurrentWidget(self.blankWidget)
-            self.img_item.setImage(self.image(),levels=(0,255))
-            self.wImgROI.setImage(self.image(),levels=(0,255))
+            self.displayImage.setImage(self.image(),levels=(0,255))
+            self.displayImage.setImage(self.image(),levels=(0,255))
 
     def add(self):
         method = self.wFilterType.currentText()
@@ -1167,11 +1297,20 @@ class FilterPattern(Modification):
             mask_in = None
 
         if method == 'Template Match':
-            mask_widget = maskClass(inputMod=in_mod,img_item=self.wImgROI,vbox=self.wImgBox_VB,mask_in=mask_in,img_in=self.inputMod.image())
+            mask_widget = maskClass(
+                inputMod=in_mod,
+                img_item=self.filterImageItem,
+                vbox=self.filterViewBox,
+                mask_in=mask_in,
+                img_in=self.inputMod.image())
         else:
-            mask_widget = maskClass(inputMod=in_mod,img_item=self.wImgROI,mask_in=mask_in,img_in=self.inputMod.image())
+            mask_widget = maskClass(
+                inputMod=in_mod,
+                img_item=self.filterImageItem,
+                mask_in=mask_in,
+                img_in=self.inputMod.image())
 
-        mask_widget.imageChanged.connect(lambda img: self.img_item.setImage(img,levels=(0,255)))
+        mask_widget.imageChanged.connect(self.imageChanged.emit)
         mask_widget.imageChanged.connect(lambda img: self.update_properties())
         self.stackedControl.addWidget(mask_widget)
         self.wFilterList.addItem(method)
@@ -1184,7 +1323,7 @@ class FilterPattern(Modification):
             w = self.stackedControl.widget(index)
             w.unfocus()
             if isinstance(w,TemplateMatchingWidget):
-                self.wImgBox_VB.removeItem(w.roi)
+                self.filterViewBox.removeItem(w.roi)
             self.wFilterList.takeItem(index)
             self.stackedControl.removeWidget(w)
             self.update_view()
@@ -1216,39 +1355,38 @@ class FilterPattern(Modification):
             return
 
 class Crop(Modification):
-    def __init__(self,inputMod,img_item,properties={}):
-        super(Crop,self).__init__(inputMod,img_item,properties)
-        self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
+    def __init__(self,inputMod,properties={}):
+        super(Crop,self).__init__(inputMod,properties)
 
-        self.wImgBox = pg.GraphicsLayoutWidget()
-        self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
-        self.wImgROI = pg.ImageItem()
-        self.wImgROI.setImage(self.img_item.image,levels=(0,255))
-        self.wImgBox_VB.addItem(self.wImgROI)
-        self.wImgBox_VB.setAspectLocked(True)
-        # self.wImgBox_VB.setMouseEnabled(False,False)
+        self.croppedImage = ImageWidget()
+        self.croppedImage.setImage(self.image(),levels=(0,255))
+        self.displayImage = ImageWidget()
+        self.displayImage.setImage(self.image(),levels=(0,255))
+        self.setDisplay(self.displayImage,connectSignal=False)
+
+        self.imageChanged.connect(self.croppedImage.setImage)
 
         self.roi = pg.ROI(
             pos=(0,0),
-            size=(20,20),
+            size=(32,32),
             removable=True,
             pen=pg.mkPen(color='r',width=2),
-            maxBounds=self.wImgROI.boundingRect(),)
+            maxBounds=self.displayImage.imageItem().boundingRect())
         self.roi.addScaleHandle(pos=(1,1),center=(0,0))
-        self.wImgBox_VB.addItem(self.roi)
-        self.roi.sigRegionChanged.connect(self.update_view)
+        self.displayImage.viewBox().addItem(self.roi)
+        self.roi.sigRegionChangeFinished.connect(self.update_view)
 
-        self.wLayout.addWidget(self.wImgBox,0,0)
+        layout = QG.QGridLayout(self)
+        layout.setAlignment(QC.Qt.AlignTop)
+        layout.addWidget(self.croppedImage,0,0)
 
     def update_image(self):
-        self.img_out,coords = self.roi.getArrayRegion(self.wImgROI.image,self.wImgROI,returnMappedCoords=True)
+        img_item = self.displayImage.imageItem()
+        self.img_out = self.roi.getArrayRegion(img_item.image,img_item)
         self.img_out = self.img_out.astype(np.uint8)
 
-        self.properties['crop_coords'] = coords.tolist()
-
     def widget(self):
-        return self.wLayout
+        return self
 
     def name(self):
         return 'Crop'
@@ -1441,12 +1579,11 @@ class DrawScale(Modification):
         return 'Draw Scale'
 
 class Erase(Modification):
-    def __init__(self,inputMod,img_item,properties={}):
-        super(Erase,self).__init__(inputMod,img_item,properties)
+    def __init__(self,*args,**kwargs):
+        super(Erase,self).__init__(*args,**kwargs)
         self.img_out = self.inputMod.image()
         self.eraser_size = 10
-        self.wLayout = pg.LayoutWidget()
-        self.wLayout.layout.setAlignment(QC.Qt.AlignTop)
+        
 
         self.wImgBox = pg.GraphicsLayoutWidget()
         self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
@@ -1455,21 +1592,23 @@ class Erase(Modification):
         self.wImgBox_VB.addItem(self.wImgROI)
         self.wImgBox_VB.setAspectLocked(True)
 
-        self.wSizeSlider = QG.QSlider(QC.Qt.Horizontal)
-        self.wSizeSlider.setMinimum(1)
-        self.wSizeSlider.setMaximum(100)
-        self.wSizeSlider.setSliderPosition(self.eraser_size)
+        self.sizeSlider = QG.QSlider(QC.Qt.Horizontal)
+        self.sizeSlider.setMinimum(1)
+        self.sizeSlider.setMaximum(100)
+        self.sizeSlider.setSliderPosition(self.eraser_size)
 
         kern = (np.ones((self.eraser_size,self.eraser_size))*255).astype(np.uint8)
         self.wImgROI.setDrawKernel(kern, mask=None, center=(int(self.eraser_size/2),int(self.eraser_size/2)), mode='set')
-        self.wSizeSlider.valueChanged.connect(self.update_view)
+        self.sizeSlider.valueChanged.connect(self.update_view)
 
+        self.wLayout = QtGui.QGridLayout(self)
         self.wLayout.addWidget(QG.QLabel('Eraser Size:'),0,0)
-        self.wLayout.addWidget(self.wSizeSlider,0,1)
+        self.wLayout.addWidget(self.sizeSlider,0,1)
         self.wLayout.addWidget(self.wImgBox,1,0,4,4)
+        self.wLayout.setAlignment(QtCore.Qt.AlignTop)
 
     def update_image(self):
-        self.eraser_size = int(self.wSizeSlider.value())
+        self.eraser_size = int(self.sizeSlider.value())
         kern = (np.ones((self.eraser_size,self.eraser_size))*255).astype(np.uint8)
         self.wImgROI.setDrawKernel(kern, mask=None, center=(int(self.eraser_size/2),int(self.eraser_size/2)), mode='set')
         self.img_out = self.wImgROI.image
@@ -1494,9 +1633,9 @@ class SobelFilter(Modification):
         self.wSobelSizeSlider.setMaximum(3)
         self.wSobelSizeSlider.setSliderPosition(2)
 
-        self.wHistPlot = pg.PlotWidget(title='Angle Histogram',pen=pg.mkPen(color='k',width=4))
-        self.wHistPlot.setXRange(0,180)
-        self.wHistPlot.hideAxis('left')
+        self.histPlot = pg.PlotWidget(title='Angle Histogram',pen=pg.mkPen(color='k',width=4))
+        self.histPlot.setXRange(0,180)
+        self.histPlot.hideAxis('left')
 
         self.wConvPlot = pg.PlotWidget(title='Convolution with Comb Function',pen=pg.mkPen(color='k',width=4))
         self.wConvPlot.setXRange(0,60)
@@ -1510,7 +1649,7 @@ class SobelFilter(Modification):
         self.wLayout.addWidget(QG.QLabel('Size:'),0,0)
         self.wLayout.addWidget(self.wSobelSizeSlider,0,1)
 
-        self.wLayout.addWidget(self.wHistPlot,4,0,4,4)
+        self.wLayout.addWidget(self.histPlot,4,0,4,4)
         self.wLayout.addWidget(self.wConvPlot,8,0,4,4)
         self.wLayout.addWidget(QG.QLabel('Shifted St. Dev.:'),12,0)
         self.wLayout.addWidget(self.wStd,12,1)
@@ -1520,7 +1659,7 @@ class SobelFilter(Modification):
         self.wSobelSizeSlider.valueChanged.connect(self.update_view)
 
         self.update_view()
-        self.exportHistBtn.clicked.connect(lambda: self.export(self.wHistPlot.getPlotItem()))
+        self.exportHistBtn.clicked.connect(lambda: self.export(self.histPlot.getPlotItem()))
         self.exportConvBtn.clicked.connect(lambda: self.export(self.wConvPlot.getPlotItem()))
 
     @errorCheck(error_text="Error exporting item!")
@@ -1591,8 +1730,8 @@ class SobelFilter(Modification):
         self.wConvPlot.addLine(x=30)
         self.wConvPlot.addLine(x=30-np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5],width=4))
         self.wConvPlot.addLine(x=30+np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5],width=4))
-        self.wHistPlot.clear()
-        self.wHistPlot.plot(
+        self.histPlot.clear()
+        self.histPlot.plot(
             self.properties['angle_histogram']['x'],
             self.properties['angle_histogram']['y'],
             stepMode=True,
@@ -1609,98 +1748,6 @@ class SobelFilter(Modification):
     def name(self):
         return 'Sobel Filter'
 
-class SmartImageItem(pg.ImageItem):
-    imageUpdateSignal = QC.pyqtSignal(object,object)
-    imageFinishSignal = QC.pyqtSignal()
-    def __init__(self,*args,**kwargs):
-        super(SmartImageItem,self).__init__(*args,**kwargs)
-        self.base_cursor = self.cursor()
-        self.radius = None
-        self.clickOnly = False
-
-    def setImage(self,img,*args,**kwargs):
-        super(SmartImageItem,self).setImage(img.T,*args,**kwargs)
-
-    def drawAt(self, pos, ev=None):
-        pos = [int(pos.x()), int(pos.y())]
-        dk = self.drawKernel
-        kc = self.drawKernelCenter
-        sx = [0,dk.shape[0]]
-        sy = [0,dk.shape[1]]
-        tx = [pos[0] - kc[0], pos[0] - kc[0]+ dk.shape[0]]
-        ty = [pos[1] - kc[1], pos[1] - kc[1]+ dk.shape[1]]
-        
-        for i in [0,1]:
-            dx1 = -min(0, tx[i])
-            dx2 = min(0, self.image.shape[0]-tx[i])
-            tx[i] += dx1+dx2
-            sx[i] += dx1+dx2
-
-            dy1 = -min(0, ty[i])
-            dy2 = min(0, self.image.shape[1]-ty[i])
-            ty[i] += dy1+dy2
-            sy[i] += dy1+dy2
-
-        ts = (slice(tx[0],tx[1]), slice(ty[0],ty[1]))
-        ss = (slice(sx[0],sx[1]), slice(sy[0],sy[1]))
-
-        self.imageUpdateSignal.emit(ts,dk[ss])
-
-    def resetCursor(self):
-        self.setCursor(self.base_cursor)
-        self.radius = None
-
-    def updateCursor(self,radius=None):
-        if radius:
-            self.radius = radius
-        if self.radius:
-            radius = self.radius
-            o = self.mapToDevice(QC.QPointF(0,0))
-            x = self.mapToDevice(QC.QPointF(1,0))
-            # d = max(1, int(1.0 / Point(x-o).length()))
-            d = 1.0 / Point(x-o).length()
-            radius = int(radius/d)
-            pix = QG.QPixmap(4*radius+1,4*radius+1)
-            pix.fill(QC.Qt.transparent)
-
-            paint = QG.QPainter(pix)
-            paint.setRenderHint(QG.QPainter.Antialiasing)
-            pt = QC.QPointF(2*radius,2*radius)
-            paint.setBrush(QC.Qt.transparent)
-            paint.drawEllipse(pt,radius,radius)
-            paint.end()
-            
-            self.setCursor(QG.QCursor(pix))
-
-    def disconnect(self):
-        sigs = [
-            self.imageUpdateSignal,
-            self.imageFinishSignal
-            ]
-        for sig in sigs:
-            if self.receivers(sig)>0:
-                sig.disconnect()
-
-    def mouseDragEvent(self, ev):
-        if ev.button() != QC.Qt.LeftButton:
-            ev.ignore()
-            return
-        elif self.drawKernel is not None and not self.clickOnly:
-            ev.accept()
-            self.drawAt(ev.pos(), ev)
-            if ev.isFinish():
-                self.imageFinishSignal.emit()
-
-    def mouseClickEvent(self, ev):
-        if ev.button() == QC.Qt.RightButton:
-            if self.raiseContextMenu(ev):
-                ev.accept()
-        if self.drawKernel is not None and ev.button() == QC.Qt.LeftButton:
-            self.drawAt(ev.pos(), ev)
-
-    def setClickOnly(self,flag):
-        assert isinstance(flag,bool)
-        self.clickOnly = flag
 
 
         

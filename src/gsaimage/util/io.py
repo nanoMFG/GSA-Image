@@ -212,6 +212,8 @@ class IO(QtWidgets.QWidget):
 
     @errorCheck(error_text="Error exporting file!")
     def exportFile(self,data,default_filename=None,ftype='json',extension=None):
+        if data is None:
+            return
         if isinstance(extension,str) == False and extension is not None:
             raise ValueError("Parameter 'extension' must be of type 'str' or 'None'!")
         if ftype == 'image' and extension is None:
