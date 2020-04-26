@@ -10,9 +10,11 @@ import logging
 from collections.abc import Sequence
 from collections import OrderedDict, deque
 import pyqtgraph as pg
+from pyqtgraph import Point
 from .icons import Icon
 
 logger = logging.getLogger(__name__)
+pg.setConfigOption('imageAxisOrder', 'row-major')
 
 QC = QtCore
 QW = QtWidgets
@@ -76,7 +78,6 @@ class LabelMaker:
 
         return label
 
-
 class SpacerMaker:
     def __init__(self,vexpand=True,hexpand=True,width=None,height=None):
         if vexpand == True:
@@ -111,7 +112,6 @@ class SpacerMaker:
         )
 
         return spacer
-
 
 class ConfirmationBox(QtWidgets.QMessageBox):
     okSignal = QtCore.pyqtSignal()
@@ -156,6 +156,7 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
 
     border:         (bool) Whether the widget should have a border.
     """
+    widgetRemoved = QtCore.pyqtSignal(int)
     def __init__(self,border=False,parent=None):
         QtWidgets.QStackedWidget.__init__(self,parent=parent)
         if border == True:
@@ -169,6 +170,7 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
             except:
                 raise KeyError("Key '%s' is not in model."%key)
         if key < self.count():
+            key = key % self.count()
             return self.widget(key)
         else:
             raise IndexError("Index %s out of range for GStackedWidget with length %s"%(key,self.count()))
@@ -199,8 +201,8 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
 
     def createGStackedWidget(self,*args,**kwargs):
         gstacked = GStackedWidget(*args,**kwargs)
-        self.widgetRemoved.connect(lambda i: gstacked.removeIndex(i) if i < gstacked.count() else None)
-        self.currentChanged.connect(lambda i: gstacked.setCurrentIndex(i) if i < gstacked.count() else None)
+        self.widgetRemoved.connect(gstacked.removeIndex)
+        self.currentChanged.connect(gstacked.setCurrentIndex)
 
         return gstacked
 
@@ -230,14 +232,47 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
 
         return self.count()-1
 
+    def insertWidget(self,index,widget,name=None):
+        if not isinstance(name,str):
+            name = "%s - %s"%(widget.__class__.__name__,self.count()-1)
+
+        item = QtGui.QStandardItem()
+        item.setIcon(QtGui.QIcon())
+        item.setText(name)
+
+        self.model.insertRow(index,item)
+        QtWidgets.QStackedWidget.insertWidget(self,index,widget)
+
+    def swapWidgets(self,newWidget,oldWidget):
+        # print("\n"+"="*50+"\n")
+        # print("Before Swap")
+        # for widget in self:
+        #     i = id(widget)
+        #     if i == id(newWidget):
+        #         lab = "new"
+        #     elif i == id(oldWidget):
+        #         lab = "old"
+        #     else:
+        #         lab = "other"
+        #     print("%s :"%self.indexOf(widget),lab,id(widget))
+
+        index = self.indexOf(oldWidget)
+        self.insertWidget(index,newWidget)
+        self.removeWidget(oldWidget)
+
+    def removeWidget(self,widget):
+        index = self.indexOf(widget)
+        self.model.takeRow(index)
+        QtWidgets.QStackedWidget.removeWidget(self,widget)
+        self.widgetRemoved.emit(index)
+
     def removeIndex(self,index):
         """
         Remove widget by index.
 
         index:          (int) Index of widget.
         """
-        self.model.takeRow(index)
-        QtWidgets.QStackedWidget.removeWidget(self,self.widget(index))
+        self.removeWidget(self.widget(index))
 
     def removeCurrentWidget(self):
         index = self.currentIndex()
@@ -286,20 +321,22 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
         return widget
 
 class ImageWidget(pg.GraphicsLayoutWidget):
-    def __init__(self, path=None,smart=True,mouseEnabled=(True,True),aspectLocked=True,*args,**kwargs):
+    def __init__(self, image=None,smart=True,mouseEnabled=(True,True),aspectLocked=True,*args,**kwargs):
         super(ImageWidget, self).__init__(*args,**kwargs)
         self._viewbox = self.addViewBox(row=1, col=1,enableMenu=False)
+        if isinstance(image,str):
+            image = np.array(Image.open(path))
+        if image is None:
+             image = 255*np.ones((764,764))
+
         if smart:
-            self._img_item = SmartImageItem(255*np.ones((764,764)))
+            self._img_item = SmartImageItem(image)
         else:
-            self._img_item = ImageItem(np.zeros((764,764)))
+            self._img_item = ImageItem(image)
+
         self._viewbox.addItem(self._img_item)
         self._viewbox.setAspectLocked(aspectLocked)
         self._viewbox.setMouseEnabled(*mouseEnabled)
-
-        if isinstance(path,str):
-            img = np.array(Image.open(path))
-            self.setImage(img, levels=(0, 255))
 
     def imageItem(self):
         return self._img_item
@@ -315,26 +352,29 @@ class ImageWidget(pg.GraphicsLayoutWidget):
 class ControlImageWidget(QtWidgets.QWidget):
     def __init__(self,imageWidget,*args,**kwargs):
         super(ControlImageWidget,self).__init__(*args,**kwargs)
-
-        self.imageWidget = imageWidget
+        self.stacked = False
 
         self.zoomInBtn = QtWidgets.QPushButton()
         self.zoomInBtn.setSizePolicy(QtGui.QSizePolicy.Maximum,QtGui.QSizePolicy.Maximum)
-        self.zoomInBtn.setMaximumHeight(32)
+        self.zoomInBtn.setMaximumHeight(48)
+        self.zoomInBtn.setMaximumWidth(48)
         self.zoomInBtn.setIcon(Icon('zoom-in.svg'))
 
         self.zoomOutBtn = QtWidgets.QPushButton()
-        self.zoomOutBtn.setMaximumHeight(32)
+        self.zoomOutBtn.setMaximumHeight(48)
+        self.zoomOutBtn.setMaximumWidth(48)
         self.zoomOutBtn.setSizePolicy(QtGui.QSizePolicy.Maximum,QtGui.QSizePolicy.Maximum)
         self.zoomOutBtn.setIcon(Icon('zoom-out.svg'))
 
         self.fullSizeBtn = QtWidgets.QPushButton()
-        self.fullSizeBtn.setMaximumHeight(32)
+        self.fullSizeBtn.setMaximumHeight(48)
+        self.fullSizeBtn.setMaximumWidth(48)
         self.fullSizeBtn.setSizePolicy(QtGui.QSizePolicy.Maximum,QtGui.QSizePolicy.Maximum)
         self.fullSizeBtn.setIcon(Icon('maximize.svg'))
 
         self.panScaleBtn = QtWidgets.QPushButton()
-        self.panScaleBtn.setMaximumHeight(32)
+        self.panScaleBtn.setMaximumHeight(48)
+        self.panScaleBtn.setMaximumWidth(48)
         self.panScaleBtn.setSizePolicy(QtGui.QSizePolicy.Maximum,QtGui.QSizePolicy.Maximum)
         self.panScaleBtn.setIcon(Icon('move.svg'))
         self.panScaleBtn.setCheckable(True)
@@ -361,23 +401,48 @@ class ControlImageWidget(QtWidgets.QWidget):
 
         buttonLayout.setContentsMargins(0,0,0,0)
 
+        self.setImageWidget(imageWidget)
+
+    def isStacked(self):
+        return self.stacked
+
+    def getCurrentWidget(self):
+        if self.stacked:
+            widget = self.imageWidget.currentWidget()
+        else:
+            widget = self.imageWidget
+
+        return widget
+
     def zoomIn(self):
-        self.imageWidget.viewBox().scaleBy((0.9,0.9))
+        widget = self.getCurrentWidget()
+        if widget is not None:
+            widget.viewBox().scaleBy((0.9,0.9))
 
     def zoomOut(self):
-        self.imageWidget.viewBox().scaleBy((1.1,1.1))
+        widget = self.getCurrentWidget()
+        if widget is not None:
+            widget.viewBox().scaleBy((1.1,1.1))
 
     def fullSize(self):
-        self.imageWidget.viewBox().autoRange()
+        widget = self.getCurrentWidget()
+        if widget is not None:
+            widget.viewBox().autoRange()
 
     def panScale(self,flag):
-        self.imageWidget.viewBox().setMouseEnabled(flag,flag)
+        widget = self.getCurrentWidget()
+        if widget is not None:
+            widget.viewBox().setMouseEnabled(flag,flag)
 
-    def setImageWidget(self,widget):
-        self.imageWidget = widget
+    def setImageWidget(self,imageWidget):
+        self.imageWidget = imageWidget
+        if isinstance(imageWidget,ImageWidget):
+            self.stacked = False
+        elif isinstance(imageWidget,GStackedWidget):
+            self.stacked = True
+        else:
+            raise ValueError("ImageWidget must be either an ImageWidget or GStackedWidget.")
         self.panScale(self.panScaleBtn.isChecked())
-
-
 
 class ImageItem(pg.ImageItem):
     def setImage(self,image,*args,**kwargs):
@@ -396,43 +461,27 @@ class DisplayWidgetFactory:
             widget.setMinimumWidth(width)
 
 class SmartImageItem(pg.ImageItem):
-    imageUpdateSignal = QC.pyqtSignal(object,object)
-    imageFinishSignal = QC.pyqtSignal()
+    cursorUpdateSignal = QC.pyqtSignal(object,float)
+    dragFinishedSignal = QC.pyqtSignal()
     def __init__(self,*args,**kwargs):
         super(SmartImageItem,self).__init__(*args,**kwargs)
         self.base_cursor = self.cursor()
         self.radius = None
-        self.clickOnly = False
+        self.scale = 1
+        self.enableDrag = True
         self.enableDraw = True
 
+    def hoverEvent(self, ev):
+        if self.cursor() is self.base_cursor:
+            self.updateCursor()
+        return super(SmartImageItem,self).hoverEvent(ev)
+
     def setImage(self,image,*args,**kwargs):
-        super(SmartImageItem,self).setImage(image[:,::-1,...],*args,**kwargs)
+        super(SmartImageItem,self).setImage(image[::-1,:,...],*args,**kwargs)
 
-    def drawAt(self, pos, ev=None):
-        pos = [int(pos.x()), int(pos.y())]
-        dk = self.drawKernel
-        kc = self.drawKernelCenter
-        sx = [0,dk.shape[0]]
-        sy = [0,dk.shape[1]]
-        tx = [pos[0] - kc[0], pos[0] - kc[0]+ dk.shape[0]]
-        ty = [pos[1] - kc[1], pos[1] - kc[1]+ dk.shape[1]]
-        
-        for i in [0,1]:
-            dx1 = -min(0, tx[i])
-            dx2 = min(0, self.image.shape[0]-tx[i])
-            tx[i] += dx1+dx2
-            sx[i] += dx1+dx2
-
-            dy1 = -min(0, ty[i])
-            dy2 = min(0, self.image.shape[1]-ty[i])
-            ty[i] += dy1+dy2
-            sy[i] += dy1+dy2
-
-        ts = (slice(tx[0],tx[1]), slice(ty[0],ty[1]))
-        ss = (slice(sx[0],sx[1]), slice(sy[0],sy[1]))
-
-        self.imageUpdateSignal.emit(ts,dk[ss])
-
+    def cursorRadius(self):
+        return self.radius
+    
     def resetCursor(self):
         self.setCursor(self.base_cursor)
         self.radius = None
@@ -441,11 +490,17 @@ class SmartImageItem(pg.ImageItem):
         if radius:
             self.radius = radius
         if self.radius:
+            ## Should be redone such that the pixmap is made once and simply rescaled
+            ## as necessary. This would avoid redrawing the pixmap each time the view zooms in/out.
+            o = self.mapToView(QC.QPointF(0,0))
+            x = self.mapToView(QC.QPointF(1,0))
+            self.scale = Point(x-o).length()
+
             radius = self.radius
             o = self.mapToDevice(QC.QPointF(0,0))
             x = self.mapToDevice(QC.QPointF(1,0))
-            # d = max(1, int(1.0 / Point(x-o).length()))
             d = 1.0 / Point(x-o).length()
+            # self.scale = d
             radius = int(radius/d)
             pix = QG.QPixmap(4*radius+1,4*radius+1)
             pix.fill(QC.Qt.transparent)
@@ -458,6 +513,10 @@ class SmartImageItem(pg.ImageItem):
             paint.end()
             
             self.setCursor(QG.QCursor(pix))
+
+    def setDraw(self,flag):
+        assert isinstance(flag,bool)
+        self.enableDraw = True
 
     def disconnect(self):
         sigs = [
@@ -472,22 +531,28 @@ class SmartImageItem(pg.ImageItem):
         if ev.button() != QC.Qt.LeftButton:
             ev.ignore()
             return
-        elif self.drawKernel is not None and not self.clickOnly:
+        elif self.enableDraw and self.enableDrag:
             ev.accept()
-            self.drawAt(ev.pos(), ev)
+            pos = ev.pos()
+            pos = [int(pos.x()),int(pos.y())]
+            self.cursorUpdateSignal.emit(pos,self.scale)
             if ev.isFinish():
-                self.imageFinishSignal.emit()
+                self.dragFinishedSignal.emit()
 
     def mouseClickEvent(self, ev):
         if ev.button() == QC.Qt.RightButton:
             if self.raiseContextMenu(ev):
                 ev.accept()
-        if self.drawKernel is not None and ev.button() == QC.Qt.LeftButton:
-            self.drawAt(ev.pos(), ev)
+        if self.enableDraw and ev.button() == QC.Qt.LeftButton:
+            pos = ev.pos()
+            pos = [int(pos.x()),int(pos.y())]
+            self.cursorUpdateSignal.emit(pos,self.scale)
 
-    def setClickOnly(self,flag):
+    def setEnableDrag(self,flag):
         assert isinstance(flag,bool)
-        self.clickOnly = flag
+        self.enableDrag = flag
+
+
 
 
 HeaderLabel = LabelMaker(family='Helvetica',size=28,bold=True)

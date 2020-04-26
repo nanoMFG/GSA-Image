@@ -282,10 +282,20 @@ class ItemsetsTableModel(QtCore.QAbstractTableModel):
 
 
 def mask_color_img(img, mask, color=[0, 0, 255], alpha=0.3):
-    out = img.copy()
+    if len(img.shape) < 3:
+        img = np.dstack((img, img, img))
     img_layer = img.copy()
-    img_layer[mask] = color
-    return cv2.addWeighted(img_layer, alpha, out, 1 - alpha, 0, out)
+    if mask.dtype == bool:
+        img_layer[mask] = color
+    elif mask.dtype == float:
+        idxs = mask.astype(bool)
+        color = np.array(color)
+        color = color[np.newaxis,np.newaxis,...]
+        color = mask[...,np.newaxis]*color
+        img_layer[idxs] = color[idxs]
+    else:
+        raise ValueError("Mask must be of type 'bool' or 'float'.")
+    return cv2.addWeighted(img_layer, alpha, img, 1 - alpha, 0)
 
 def check_extension(file_name, extensions):
     return any([(file_name[-4:]==ext and len(file_name)>4) for ext in extensions])
