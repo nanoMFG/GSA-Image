@@ -970,6 +970,10 @@ class KMeansFilter(ClusterFilter):
         self.stride_edit.setValidator(QG.QIntValidator(1,30))
         self.stride_edit.setText("3")
 
+        self.seed_edit = QW.QLineEdit()
+        self.seed_edit.setValidator(QG.QIntValidator(1,1e6))
+        self.seed_edit.setText(np.random.randint(1e6))
+
         main_widget = QW.QWidget()
         layout = QG.QGridLayout(main_widget)
         layout.addWidget(QW.QLabel("Window Size:"),0,0)
@@ -978,9 +982,11 @@ class KMeansFilter(ClusterFilter):
         layout.addWidget(self.n_clusters_edit,1,1)
         layout.addWidget(QW.QLabel("Stride:"),2,0)
         layout.addWidget(self.stride_edit,2,1)
-        layout.addWidget(self.run_btn,3,0)
-        layout.addWidget(BasicLabel('Clusters by Fractional Area:'),4,0,1,2)
-        layout.addWidget(self.cluster_list,5,0,1,2)
+        layout.addWidget(QW.QLabel("Random Seed:"),3,0)
+        layout.addWidget(self.seed_edit,3,1)
+        layout.addWidget(self.run_btn,4,0)
+        layout.addWidget(BasicLabel('Clusters by Fractional Area:'),5,0,1,2)
+        layout.addWidget(self.cluster_list,6,0,1,2)
         layout.setAlignment(QC.Qt.AlignTop)
         
         self.setWidget(main_widget)
@@ -999,7 +1005,9 @@ class KMeansFilter(ClusterFilter):
         n_clusters = int('0'+self.n_clusters_edit.text())
 
         if n_clusters >= 2 and wsize >= 1 and stride >= 1:
-            kmeans = MiniBatchKMeans(n_clusters=n_clusters)
+            kmeans = MiniBatchKMeans(
+                n_clusters=n_clusters,
+                random_state=int('0'+self.seed_edit.text()))
             img_in = self.image(startImage=True,copy=False)
             X=util.view_as_windows(
                 self.pad(img_in,wsize=wsize,stride=stride),
