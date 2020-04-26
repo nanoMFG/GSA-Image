@@ -780,18 +780,20 @@ class TemplateMatchingWidget(MaskingModification):
     __name__ = "Template Matching"
     def __init__(self,*args,**kwargs):
         super(TemplateMatchingWidget,self).__init__(maskLogic='or',*args,**kwargs)
+        self.invert = False
 
         self.threshSlider = QG.QSlider(QC.Qt.Horizontal)
         self.threshSlider.setMinimum(0)
         self.threshSlider.setMaximum(1000)
         self.threshSlider.setSliderPosition(100)
-        self.threshSlider.valueChanged.connect(self.update_view)
 
         self.sizeSlider = QG.QSlider(QC.Qt.Horizontal)
         self.sizeSlider.setMinimum(2)
         self.sizeSlider.setMaximum(30)
         self.sizeSlider.setSliderPosition(15)
-        self.sizeSlider.valueChanged.connect(lambda v: self.roi.setSize([2*v,2*v]))
+
+        self.invertSelection = QW.QPushButton('Invert Selection')
+        self.invertSelection.setIcon(Icon('subtract.svg'))
 
         self.roi = pg.ROI(
             pos=(0,0),
@@ -801,22 +803,26 @@ class TemplateMatchingWidget(MaskingModification):
             maxBounds=self.display().imageItem().boundingRect(),
             scaleSnap=True,
             snapSize=2)
-        self.roi.sigRegionChangeFinished.connect(self.update_view)
         self.display().viewBox().addItem(self.roi)
 
-        # main_widget = QW.QWidget()
+        main_widget = QW.QWidget()
         layout = QG.QGridLayout()
         layout.addWidget(QW.QLabel("Threshold:"),0,0)
         layout.addWidget(self.threshSlider,0,1)
         layout.addWidget(QW.QLabel("Template Size:"),1,0)
         layout.addWidget(self.sizeSlider,1,1)
+        layout.addWidget(self.invertSelection,2,0,1,2)
         layout.setAlignment(QC.Qt.AlignTop)
-        self.setLayout(layout)
+        main_widget.setLayout(layout)
         
-        # self.setWidget(main_widget)
+        self.setWidget(main_widget)
 
+        self.invertSelection.clicked.connect(lambda: self.update_view(invert=True))
+        self.sizeSlider.valueChanged.connect(lambda v: self.roi.setSize([2*v,2*v]))
+        self.roi.sigRegionChangeFinished.connect(lambda: self.update_view())
+        self.threshSlider.valueChanged.connect(lambda v: self.update_view(threshold=v))
 
-    def update_image(self,threshold=100):
+    def update_image(self,threshold=100,invert=False):
         img_in = self.image(startImage=True,copy=False)
         region = self.roi.getArrayRegion(img_in,self.display().imageItem()).astype(np.uint8)
         x,y = region.shape
@@ -825,10 +831,21 @@ class TemplateMatchingWidget(MaskingModification):
 
         threshold = np.logspace(-3,0,1000)[threshold-1]
         
-        self._mask = res < threshold
+        if invert:
+            self._mask = res >= threshold
+        else:
+            self._mask = res < threshold
 
-    def update_view(self):
-        self.update_image(self.threshSlider.value())
+
+    def update_view(self,threshold=None,invert=None):
+        if threshold is None:
+            threshold=self.threshSlider.value()
+        if invert is None:
+            invert = self.invert
+        else:
+            self.invert = ~self.invert
+            invert = self.invert
+        self.update_image(threshold=threshold,invert=invert)
         self.imageChanged.emit(self.image(copy=False))
         self.maskChanged.emit(self.mask(copy=False))
 
@@ -1084,6 +1101,8 @@ class FilterPattern(Modification):
         self.filterType.addItems(list(self._maskClasses.keys()))
 
         self.filterList = self.stackedControl.createListView()
+        self.filterList.setSizePolicy(QW.QSizePolicy.Preferred,QW.QSizePolicy.Maximum)
+        self.filterList.setMaximumHeight(100)
 
         self.addBtn = QG.QPushButton()
         self.addBtn.setIcon(Icon('plus.svg'))
@@ -1099,7 +1118,7 @@ class FilterPattern(Modification):
         self.exportMask.setIcon(Icon('upload.svg'))
 
         self.displayImage = ImageWidget(mouseEnabled=(True,True))
-        self.displayImage.setMaximumHeight(300)
+        self.displayImage.setMaximumHeight(250)
         self.imageChanged.connect(self.displayImage.setImage)
 
         layer_layout = QG.QGridLayout()
