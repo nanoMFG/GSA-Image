@@ -29,7 +29,6 @@ from util.icons import Icon
 from io import BytesIO
 import traceback
 import seaborn
-import subprocess
 
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('imageAxisOrder', 'row-major')
@@ -105,7 +104,6 @@ class Main(QW.QMainWindow):
         path = os.path.join(repo_dir,'data','test.tif')
         self.mainWidget.importImage(path)
 
-
 class GSAImage(QW.QWidget):
     def __init__(self,mode='local',parent=None):
         super(GSAImage,self).__init__(parent=parent)
@@ -143,14 +141,12 @@ class GSAImage(QW.QWidget):
         # Add / remove modification buttons
         self.addBtn = QG.QPushButton()
         self.addBtn.setIcon(Icon("plus.svg"))
-        self.addBtn.setMaximumWidth(32)
-        self.addBtn.setMaximumHeight(32)
+        self.addBtn.setMaximumWidth(48)
         self.addBtn.clicked.connect(lambda: self.addMod(mod=None))
 
         self.removeBtn = QG.QPushButton()
         self.removeBtn.setIcon(Icon("minus.svg"))
-        self.removeBtn.setMaximumWidth(32)
-        self.removeBtn.setMaximumHeight(32)
+        self.removeBtn.setMaximumWidth(48)
         self.removeBtn.clicked.connect(self.removeMod)
 
         # I/O buttons not used bc of file menu. However the class is used for facilitating import/export
@@ -188,12 +184,19 @@ class GSAImage(QW.QWidget):
         self.toggleDisplay.addWidget(self.stackedDisplay)
 
         self.mod_list.setFixedWidth(250)
+
+        bar_layout = QG.QGridLayout()
+        bar_layout.addWidget(self.modComboBox,0,0)
+        bar_layout.addWidget(self.addBtn,0,1)
+        bar_layout.addWidget(self.removeBtn,0,2)
+
         layerLayout = QG.QGridLayout()
         layerLayout.addWidget(HeaderLabel('Layers'),0,0)
         layerLayout.addWidget(self.mod_list,2,0,1,3)
         layerLayout.addWidget(self.modComboBox,3,0)
         layerLayout.addWidget(self.addBtn,3,2)
         layerLayout.addWidget(self.removeBtn,3,1)
+        layerLayout.setHorizontalSpacing(0)
 
         controlLayout = QG.QGridLayout()
         controlLabel = HeaderLabel('Control')
@@ -411,12 +414,15 @@ class Modification(QW.QScrollArea):
         self.imageChanged.emit(self.img_out)
     def update_image(self):
         """
-        Abstract function for defining and applying modifications to the input image.
+        (Optional) abstract function for defining and applying modifications to the input image. This is
+        used for running the calculations, etc. (not display functionality). It is useful to separate
+        the image updating from viewing in many cases which is why it is separate.
         """
         pass
     def update_view(self):
         """
-        Updates the image display.
+        Updates the image display(s) and other widgets. Emits the update signal(s). Must be implemented
+        in any subclass.
         """
         self.update_image()
         self.imageChanged.emit(self.img_out)
@@ -713,6 +719,9 @@ class MaskingModification(Modification):
         assert self.inputMod is not None and isinstance(self.inputMod.image(copy=False),np.ndarray)
         self._mask = np.zeros_like(self.inputMod.image(copy=False),dtype=bool)
 
+        self.palette=seaborn.husl_palette(20,l=0.4)
+        self.palette=[val for pair in zip(self.palette[:int(len(self.palette)/2)], self.palette[int(len(self.palette)/2):][::-1]) for val in pair]
+
         self.maskLogic = np.logical_or
         self.updateDisplay(mask=self.mask(copy=False))
 
@@ -738,7 +747,6 @@ class MaskingModification(Modification):
                 img=self.inputMod.image(startImage=True,copy=False), 
                 mask=mask))
         elif mask.dtype == int:
-            palette=seaborn.husl_palette(30,l=0.4)
             shaded_img = self.image(startImage=True,copy=True)
             for label in sorted(np.unique(mask)):
                 if label == 0:
@@ -746,7 +754,7 @@ class MaskingModification(Modification):
                 if label == 1:
                     color = [0,0,255]
                 else:
-                    color = np.array(palette[label-1])*255
+                    color = np.array(self.palette[(label-1)%len(self.palette)])*255
                 shaded_img = mask_color_img(
                     img = shaded_img, 
                     mask = mask==label,
@@ -972,7 +980,7 @@ class KMeansFilter(ClusterFilter):
 
         self.seed_edit = QW.QLineEdit()
         self.seed_edit.setValidator(QG.QIntValidator(1,1e6))
-        self.seed_edit.setText(np.random.randint(1e6))
+        self.seed_edit.setText(str(np.random.randint(1e6)))
 
         main_widget = QW.QWidget()
         layout = QG.QGridLayout(main_widget)
@@ -1114,27 +1122,29 @@ class FilterPattern(Modification):
 
         self.addBtn = QG.QPushButton()
         self.addBtn.setIcon(Icon('plus.svg'))
-        self.addBtn.setMaximumWidth(32)
-        self.addBtn.setMaximumHeight(32)
+        self.addBtn.setMaximumWidth(48)
 
         self.removeBtn = QG.QPushButton()
         self.removeBtn.setIcon(Icon('minus.svg'))
-        self.removeBtn.setMaximumWidth(32)
-        self.removeBtn.setMaximumHeight(32)
+        self.removeBtn.setMaximumWidth(48)
 
         self.exportMask = QG.QPushButton('Export Mask')
         self.exportMask.setIcon(Icon('upload.svg'))
 
         self.displayImage = ImageWidget(mouseEnabled=(True,True))
-        self.displayImage.setMaximumHeight(250)
+        self.displayImage.setMaximumHeight(300)
         self.imageChanged.connect(self.displayImage.setImage)
 
+        bar_layout = QG.QGridLayout()
+        bar_layout.addWidget(self.filterType,0,0)
+        bar_layout.addWidget(self.addBtn,0,2)
+        bar_layout.addWidget(self.removeBtn,0,1)
+        bar_layout.setHorizontalSpacing(0)
+
         layer_layout = QG.QGridLayout()
-        layer_layout.addWidget(self.filterType,0,0)
-        layer_layout.addWidget(self.addBtn,0,2)
-        layer_layout.addWidget(self.removeBtn,0,1)
-        layer_layout.addWidget(self.filterList,1,0,6,3)
-        layer_layout.addWidget(self.exportMask,7,0)
+        layer_layout.addLayout(bar_layout,0,0)
+        layer_layout.addWidget(self.filterList,1,0)
+        layer_layout.addWidget(self.exportMask,2,0)
         layer_layout.setAlignment(QC.Qt.AlignTop)
         
 
@@ -1143,6 +1153,7 @@ class FilterPattern(Modification):
         main_layout.addWidget(self.stackedControl,1,0)
         main_layout.addWidget(self.displayImage,2,0)
         main_layout.setAlignment(QC.Qt.AlignTop)
+        main_layout.setHorizontalSpacing(0)
 
         self.stackedControl.currentChanged.connect(self.update_view)
         self.addBtn.clicked.connect(self.add)
@@ -1157,7 +1168,7 @@ class FilterPattern(Modification):
             return np.ones_like(self.image(),dtype=bool)
 
     def image(self,startImage=False,copy=True):
-        if hasattr(self,'stackedControl'):
+        if hasattr(self,'stackedControl'): # added this because otherwise initializing the super class messes up.
             if startImage or self.stackedControl.count()==0:
                 return Modification.image(self.inputMod,startImage=startImage,copy=copy)
             else:
@@ -1252,8 +1263,8 @@ class Crop(Modification):
         self.roi.sigRegionChangeFinished.connect(self.update_view)
 
         layout = QG.QGridLayout(self)
-        layout.setAlignment(QC.Qt.AlignTop)
         layout.addWidget(self.croppedImage,0,0)
+        layout.setAlignment(QC.Qt.AlignTop)
 
     def update_image(self):
         img_item = self.displayImage.imageItem()
@@ -1297,11 +1308,11 @@ class DomainCentersMask(MaskingModification):
         main_widget = QW.QWidget()
 
         layer_layout = QG.QGridLayout(main_widget)
-        layer_layout.setAlignment(QC.Qt.AlignTop)
         layer_layout.addWidget(QW.QLabel("Domain Center Coordinates:"),0,0)
         layer_layout.addWidget(self.domain_list,1,0)
         layer_layout.addWidget(self.deleteBtn,2,0)
         layer_layout.addWidget(self.exportBtn,3,0)
+        layer_layout.setAlignment(QC.Qt.AlignTop)
 
         self.setWidget(main_widget)
 
@@ -1474,7 +1485,200 @@ class Erase(EraseFilter):
         EraseFilter.__init__(self,*args,**kwargs)
 
         self.maskChanged.disconnect()
-        self.imageChanged.connect(self.display().setImage)
+        self.imageChanged.connect(self.display().setImage)      
+
+class AlignmentPlots(QW.QWidget):
+    def __init__(self,*args,**kwargs):
+        super(AlignmentPlots,self).__init__(*args,**kwargs)
+        self.data_list = []
+        self.images = []
+        self.colors = []
+
+        self.sobelSizeSlider = QtGui.QSlider(QtCore.Qt.Horizontal)
+        self.sobelSizeSlider.setMinimum(1)
+        self.sobelSizeSlider.setMaximum(3)
+        self.sobelSizeSlider.setSliderPosition(2)
+
+        self.histPlot = pg.PlotWidget(title='Angle Histogram',enableMenu=False,antialias=True)
+        # self.histPlot.setMouseEnabled(False,False)
+        # self.histPlot.setAspectLocked(True)
+        self.histPlot.setXRange(0,180)
+        self.histPlot.hideAxis('left')
+        self.histPlot.setLabel('bottom',text="Angle (deg)")
+        self.histPlot.getAxis('bottom').setTicks([[(tk,str(tk)) for tk in np.linspace(0,180,7).astype(int)],[]])
+
+        self.convPlot = pg.PlotWidget(title='Convolution with Comb Function',enableMenu=False,antialias=True)
+        # self.convPlot.setMouseEnabled(False,False)
+        # self.convPlot.setAspectLocked(True)
+        self.convPlot.setXRange(0,60)
+        self.convPlot.hideAxis('left')
+        self.convPlot.setLabel('bottom',text="Angle (deg)")
+        self.convPlot.getAxis('bottom').setTicks([[(tk,str(tk)) for tk in np.linspace(0,60,5).astype(int)],[]])
+
+        self.tabs = QW.QTabWidget()
+        self.tabs.addTab(self.histPlot,'Orientation Histogram')
+        self.tabs.addTab(self.convPlot,'Convolution')
+
+        layout = QG.QGridLayout(self)
+        layout.addWidget(QW.QLabel("Sobel Size:"),0,0)
+        layout.addWidget(self.sobelSizeSlider,0,1)
+        layout.addWidget(self.tabs,1,0,1,2)
+        layout.setAlignment(QC.Qt.AlignTop)
+
+        self.sobelSizeSlider.valueChanged.connect(lambda _: self.update_view())
+
+    def runSobel(self,images):
+        data_list = []
+        for image in images:
+            sobel_size = 2*int(self.sobelSizeSlider.value())+1
+            dx = cv2.Sobel(image,ddepth=cv2.CV_64F,dx=1,dy=0,ksize=sobel_size)
+            dy = cv2.Sobel(image,ddepth=cv2.CV_64F,dx=0,dy=1,ksize=sobel_size)
+
+            theta = np.arctan2(dy,dx)*180/np.pi
+            magnitude = np.sqrt(dx**2+dy**2)
+
+            values, bin_edges = np.histogram(
+                theta.flatten(),
+                weights=magnitude.flatten(),
+                bins=np.linspace(0,180,181),
+                density=True)
+
+            comb = np.zeros(120)
+            comb[0] = 1
+            comb[60] = 1
+            comb[-1] = 1
+            convolution = sc.signal.convolve(values,comb,mode='valid')
+            convolution = convolution/sum(convolution)
+            
+            cos = np.average(np.cos(np.arange(len(convolution))*2*np.pi/60),weights=convolution)
+            sin = np.average(np.sin(np.arange(len(convolution))*2*np.pi/60),weights=convolution)
+            periodic_mean = np.round((np.arctan2(-sin,-cos)+np.pi)*60/2/np.pi).astype(int)
+            
+            convolution = np.roll(convolution,30-periodic_mean)
+            periodic_var = np.average((np.arange(len(convolution))-30)**2,weights=convolution)
+
+            data['Sobel Operator Output'] = {
+                "Sobel Operator Size": sobel_size, 
+                "Gradient Angle Array": theta.tolist(),
+                "Gradient Magnitude Array": magnitude.tolist()}
+            data['Edge Orientation Histogram'] = {"Bin Edges (deg)": bin_edges.tolist(), "Values": values.tolist()}
+            data['Angular Convolution'] = {
+                "Bin Edges (deg)": list(range(0,len(convolution)+1)), 
+                "Values": convolution.tolist(),
+                "Mean Shift": periodic_mean,
+                "Variance": periodic_var}
+
+            data_list.append(data)
+
+        return data_list
+
+    def update_view(self,images=None,colors=None):
+        if images is not None and colors is not None:
+            assert len(images) == len(colors)
+            assert all(isinstance(im,np.ndarray) for im in images)
+            assert all(im.shape==images[0].shape for im in images)
+
+            self.images = images
+            self.colors = colors
+
+        self.data_list = self.runSobel(images=self.images)
+
+        self.convPlot.clear()
+        self.histPlot.clear()
+        for c,color in enumerate(self.colors):
+            color = pg.mkBrush(color)
+            color.setAlpha(100)
+            data = self._data_list[c]
+            kwargs = {'stepMode':True,'fillLevel':0,'brush':color}
+            if len(colors) == 1:
+                kwargs['pen'] = pg.mkPen(color='k',width=4)
+
+            self.convPlot.plot(
+                data['Angular Convolution']["Bin Edges (deg)"],
+                data['Angular Convolution']["Values"],
+                **kwargs)
+
+            self.histPlot.plot(
+                data['Edge Orientation Histogram']["Bin Edges (deg)"],
+                data['Edge Orientation Histogram']["Values"],
+                **kwargs)
+
+        return self.data_list
+
+class SegmentCustomFilter(CustomFilter):
+    def __init__(self,*args,**kwargs):
+        super(SegmentCustomFilter,self).__init__(*args,**kwargs)
+
+class AlignmentSegmentation(Modification):
+    __name__="Alignment"
+    def __init__(self,*args,**kwargs):
+        super(AlignmentSegmentation,self).__init__(*args,**kwargs)
+        self.palette=seaborn.husl_palette(30,l=0.4)
+
+        self.segments = GStackedWidget()
+        self.segListView = self.segments.createListView()
+        self.imageWidgetStack = self.stackedControl.createGStackedWidget()
+        self.setDisplay(self.imageWidgetStack,connectSignal=False)
+
+        self.addBtn = QPushButton()
+        self.addBtn.setIcon(Icon('plus.svg'))
+        self.deleteBtn = QPushButton()
+        self.deleteBtn.setIcon(Icon('minus.svg'))
+
+        btn_layout = QG.QGridLayout()
+        btn_layout.addWidget(self.addBtn,0,0)
+        btn_layout.addWidget(self.deleteBtn,0,1)
+
+        self.plots = AlignmentPlots()
+
+        layout = QG.QGridLayout(self)
+        layout.addWidget(self.segListView,0,0)
+        layout.addLayout(btn_layout,1,0)
+        layout.addWidget(self.segments,2,0)
+        layout.addWidget(self.plots,3,0)
+
+        self.addSegmentAct.clicked.connect(self.addSegment)
+        self.deleteSegmentAct.clicked.connect(self.deleteSegment)
+
+    def image(self,*args,**kwargs):
+        return self.inputMod.image(*args,**kwargs)
+
+    def updateDisplay(self):
+        shaded_img = self.image(copy=True)
+        images = []
+        colors = []
+        for label in range(len(self.segments)):
+            seg = self.segments[label]
+            mask = seg.mask(copy=False)
+
+            image = self.image(copy=True)
+            image[~mask] = 255
+            images.append(image)
+
+            color = np.array(self.palette[(label-1)%len(self.palette)])*255
+            colors.append(colors)
+
+            shaded_img = mask_color_img(
+                img = shaded_img, 
+                mask = mask,
+                color = color)
+        self.display().setImage(shaded_img)
+        self.plots.update_view(images=images,colors=colors)
+
+    def addSegment(self):
+        seg = FilterPattern(
+            config=self.config,
+            inputMod=InitialImage(config=self.config,image=self.image()))
+
+        seg.maskChanged.connect(lambda _: self.updateDisplay())
+        self.imageWidgetStack.addWidget(seg.display())
+        self.segments.addWidget(seg,name="New Segment")
+
+        self.segments.setCurrentIndex(len(self.segments)-1)
+
+    def deleteSegment(self,index):
+        if len(self.segments)>0:
+            self.segments.removeIndex(index)
 
 class Alignment(Modification):
     __name__ = "Alignment"
@@ -1528,15 +1732,17 @@ class Alignment(Modification):
         self.exportBtn.setMenu(exportMenu)
         self.exportBtn.setStyleSheet("QPushButton { text-align: left; }")
 
+        self.plotTabs = QW.QTabWidget()
+        self.plotTabs.addTab(self.histPlot,'Angle Histogram')
+        self.plotTabs.addTab(self.convPlot,'Convolution')
+
         layout = QG.QGridLayout(self)
         layout.addWidget(QW.QLabel('Size:'),0,0)
         layout.addWidget(self.sobelSizeSlider,0,1)
-
-        layout.addWidget(self.histPlot,4,0,4,4)
-        layout.addWidget(self.convPlot,8,0,4,4)
-        layout.addWidget(QW.QLabel('Shifted St. Dev.:'),12,0)
-        layout.addWidget(self.wStd,12,1)
-        layout.addWidget(self.exportBtn,14,0,1,2)
+        layout.addWidget(self.plotTabs,1,0,1,2)
+        layout.addWidget(QW.QLabel('Shifted St. Dev.:'),2,0)
+        layout.addWidget(self.wStd,2,1)
+        layout.addWidget(self.exportBtn,4,0,1,2)
 
         self.sobelSizeSlider.valueChanged.connect(self.update_view)
         # self.colors.currentIndexChanged.connect(lambda x: self.update_view())
@@ -1666,7 +1872,7 @@ def main():
     app = QG.QApplication([])
     # img_analyzer = GSAImage(mode=mode)
     # img_analyzer.run()
-    main = Main()
+    main = Main(mode=mode)
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
