@@ -715,6 +715,7 @@ class MaskingModification(Modification):
         Modification.__init__(self,*args,**kwargs)
         assert self.inputMod is not None and isinstance(self.inputMod.image(copy=False),np.ndarray)
         self._mask = np.zeros_like(self.inputMod.image(copy=False),dtype=bool)
+        self._mask_out = np.zeros_like(self.inputMod.image(copy=False),dtype=bool)
 
         self.palette=seaborn.husl_palette(20,l=0.4)
         self.palette=[val for pair in zip(self.palette[:int(len(self.palette)/2)], self.palette[int(len(self.palette)/2):][::-1]) for val in pair]
@@ -726,12 +727,18 @@ class MaskingModification(Modification):
 
         self.imageChanged.disconnect()
         self.maskChanged.connect(self.updateDisplay)
+        # if isinstance(self.inputMod,MaskingModification):
+        #     self.inputMod.maskChanged.connect(lambda _: self.mask(copy=False))
+
+    def emitMask(self):
+        self.maskChanged.emit(self.mask(copy=False))
 
     def image(self,*args,**kwargs):
         try:
             self.img_out = super(MaskingModification,self).image(startImage=True)
             self.img_out[~self.mask(copy=False).astype(bool)] = 255
-        except:
+        except Exception as e:
+            # print(e)
             pass
 
         return super(MaskingModification,self).image(*args,**kwargs)
@@ -763,9 +770,12 @@ class MaskingModification(Modification):
         #         mask=mask,
         #         color=[255,0,0]))
 
-    def mask(self,copy=True):
+    def mask(self,copy=True,recursive=False):
         if isinstance(self.inputMod,MaskingModification):
-            mask_in = self.inputMod.mask(copy=False)
+            if recursive:
+                mask_in = self.inputMod.mask(copy=False,recursive=True)
+            else:
+                mask_in = self.inputMod._mask_out
             assert isinstance(mask_in,np.ndarray) and mask_in.shape==self._mask.shape
             mask = self.maskLogic(mask_in,self._mask)
         else:
@@ -775,6 +785,8 @@ class MaskingModification(Modification):
             mask = mask.astype(int)
             idxs = self._mask>0
             mask[idxs] = self._mask[idxs]+1
+
+        self._mask_out = mask
         
         if copy:
             return mask.copy()
@@ -877,6 +889,7 @@ class CustomFilter(MaskingModification):
 
         self.display().imageItem().setDraw(True)
         self.display().imageItem().cursorUpdateSignal.connect(self.update_view)
+        self.display().imageItem().dragFinishedSignal.connect(lambda: self.imageChanged.emit(self.image(copy=False)))
         self.display().viewBox().sigResized.connect(lambda v: self.display().imageItem().updateCursor())
         self.display().viewBox().sigTransformChanged.connect(lambda v: self.display().imageItem().updateCursor())
 
@@ -888,8 +901,8 @@ class CustomFilter(MaskingModification):
             ## Cursor position coordinate system is weird so adjustments are made.
             rr, cc = skcircle(shape[0]-pos[1],pos[0],self.sizeSlider.value()*scale,shape=shape)
             self._mask[rr,cc] = self.maskVal
-
-        self.imageChanged.emit(self.image(copy=False))
+        else:
+            self.imageChanged.emit(self.image(copy=False))
         self.maskChanged.emit(self.mask(copy=False))
 
 class EraseFilter(CustomFilter):
