@@ -1,16 +1,13 @@
-import os
-import numpy as np
-from PIL import Image
-from PyQt5 import QtGui, QtCore, QtWidgets
-import copy
-import io
-import traceback
-import functools
 import logging
+from collections import OrderedDict
 from collections.abc import Sequence
-from collections import OrderedDict, deque
+
+import numpy as np
 import pyqtgraph as pg
+from PIL import Image
 from pyqtgraph import Point
+from PyQt5 import QtGui, QtCore, QtWidgets
+
 from .icons import Icon
 
 logger = logging.getLogger(__name__)
@@ -182,6 +179,19 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
         item = self.model.item(row)
         item.setData(icon,QtCore.Qt.DecorationRole)
 
+    def createListWidget(self):
+        """
+        Returns a a QListWidget that is linked to this GStackedWidget. If list row is changed, GStackedWidget switches to the
+        associated widget. If widgets are added/removed from the GStackedWidget, they are added/removed from the list widget.
+        """
+        list_widget = QtWidgets.QListWidget()
+        list_widget.setModel(self.model)
+        
+        self.currentChanged.connect(list_widget.setCurrentRow)
+        list_widget.currentRowChanged.connect(self.setCurrentIndex)
+
+        return list_widget
+
     def createListView(self):
         listview = QtWidgets.QListView()
         listview.setModel(self.model)
@@ -244,18 +254,6 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
         QtWidgets.QStackedWidget.insertWidget(self,index,widget)
 
     def swapWidgets(self,newWidget,oldWidget):
-        # print("\n"+"="*50+"\n")
-        # print("Before Swap")
-        # for widget in self:
-        #     i = id(widget)
-        #     if i == id(newWidget):
-        #         lab = "new"
-        #     elif i == id(oldWidget):
-        #         lab = "old"
-        #     else:
-        #         lab = "other"
-        #     print("%s :"%self.indexOf(widget),lab,id(widget))
-
         index = self.indexOf(oldWidget)
         self.insertWidget(index,newWidget)
         self.removeWidget(oldWidget)
@@ -352,6 +350,7 @@ class ImageWidget(pg.GraphicsLayoutWidget):
 class ControlImageWidget(QtWidgets.QWidget):
     def __init__(self,imageWidget,*args,**kwargs):
         super(ControlImageWidget,self).__init__(*args,**kwargs)
+        self.imageWidget = imageWidget
         self.stacked = False
 
         self.zoomInBtn = QtWidgets.QPushButton()
@@ -398,21 +397,26 @@ class ControlImageWidget(QtWidgets.QWidget):
         buttonLayout.addWidget(self.panScaleBtn,0,4)
         buttonLayout.addWidget(rspacer,0,5)
         buttonLayout.setAlignment(QtCore.Qt.AlignLeft)
+        buttonLayout.setHorizontalSpacing(0)
 
         buttonLayout.setContentsMargins(0,0,0,0)
 
         self.setImageWidget(imageWidget)
 
-    def isStacked(self):
-        return self.stacked
-
-    def getCurrentWidget(self):
-        if self.stacked:
-            widget = self.imageWidget.currentWidget()
-        else:
+    def getCurrentWidget(self,widget=None):
+        if widget is None:
             widget = self.imageWidget
-
-        return widget
+        if widget is not None:
+            if isinstance(widget,ImageWidget):
+                return widget
+            elif isinstance(widget,GStackedWidget):
+                widget = widget.currentWidget()
+                if widget is not None:
+                    return self.getCurrentWidget(widget=widget)
+                else:
+                    return widget
+        else:
+            return widget
 
     def zoomIn(self):
         widget = self.getCurrentWidget()
@@ -436,11 +440,7 @@ class ControlImageWidget(QtWidgets.QWidget):
 
     def setImageWidget(self,imageWidget):
         self.imageWidget = imageWidget
-        if isinstance(imageWidget,ImageWidget):
-            self.stacked = False
-        elif isinstance(imageWidget,GStackedWidget):
-            self.stacked = True
-        else:
+        if not isinstance(imageWidget,ImageWidget) and not isinstance(imageWidget,GStackedWidget):
             raise ValueError("ImageWidget must be either an ImageWidget or GStackedWidget.")
         self.panScale(self.panScaleBtn.isChecked())
 
@@ -469,10 +469,10 @@ class SmartImageItem(pg.ImageItem):
         self.radius = None
         self.scale = 1
         self.enableDrag = True
-        self.enableDraw = True
+        self.enableDraw = False
 
     def hoverEvent(self, ev):
-        if self.cursor() is self.base_cursor:
+        if self.enableDraw and self.cursor() is self.base_cursor:
             self.updateCursor()
         return super(SmartImageItem,self).hoverEvent(ev)
 

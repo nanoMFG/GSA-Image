@@ -1,34 +1,31 @@
 from __future__ import division
+
+from collections import OrderedDict
+
+import cv2
+import json
 import numpy as np
 import numpy.linalg as la
-import scipy as sc
-import cv2, sys, time, json, copy, subprocess, os
-from skimage import transform
-from skimage import util
-from skimage import color
-import functools
-from skimage.draw import circle as skcircle
-from skimage.draw import line
-from PyQt5 import QtGui
-from PyQt5 import QtWidgets
-from PyQt5 import QtCore
+import os
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from pyqtgraph import Point
-from pyqtgraph import SignalProxy
-from PIL import Image
-from PIL.ImageQt import ImageQt
-from collections import OrderedDict
-from sklearn.cluster import MiniBatchKMeans, DBSCAN
-from sklearn.mixture import GaussianMixture
-import matplotlib.pyplot as plt
-from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
-from util.gwidgets import *
-from util.io import IO
-from util.icons import Icon
-from io import BytesIO
-import traceback
+from scipy import signal
 import seaborn
+import subprocess
+import sys
+from PIL import Image
+from PyQt5 import QtCore
+from PyQt5 import QtGui
+from PyQt5 import QtWidgets
+from skimage import util
+from skimage.draw import circle as skcircle
+from skimage.draw import line
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.mixture import GaussianMixture
+from util.gwidgets import *
+from util.icons import Icon
+from util.io import IO
+from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
 
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('imageAxisOrder', 'row-major')
@@ -1133,6 +1130,7 @@ class FilterPattern(Modification):
 
         self.displayImage = ImageWidget(mouseEnabled=(True,True))
         self.displayImage.setMaximumHeight(300)
+        self.displayImage.viewBox().autoRange(padding=0)
         self.imageChanged.connect(self.displayImage.setImage)
 
         bar_layout = QG.QGridLayout()
@@ -1434,6 +1432,7 @@ class DrawScaleMask(MaskingModification):
         layout.addWidget(self.clearBtn,3,0,1,3,QC.Qt.AlignBottom)
 
         self.emitImage()
+        self.display().imageItem().setDraw(True)
         self.display().imageItem().cursorUpdateSignal.connect(self.update_view)
         self.display().imageItem().dragFinishedSignal.connect(self.dragFinished)
         self.realLengthEdit.textChanged.connect(lambda ___: self.updateLabels())
@@ -1547,7 +1546,7 @@ class AlignmentPlots(QW.QWidget):
             comb[0] = 1
             comb[60] = 1
             comb[-1] = 1
-            convolution = sc.signal.convolve(values,comb,mode='valid')
+            convolution = signal.convolve(values,comb,mode='valid')
             convolution = convolution/sum(convolution)
             
             cos = np.average(np.cos(np.arange(len(convolution))*2*np.pi/60),weights=convolution)
@@ -1811,7 +1810,7 @@ class Alignment(Modification):
         comb[0] = 1
         comb[60] = 1
         comb[-1] = 1
-        convolution = sc.signal.convolve(values,comb,mode='valid')
+        convolution = signal.convolve(values,comb,mode='valid')
         convolution = convolution/sum(convolution)
         
         cos = np.average(np.cos(np.arange(len(convolution))*2*np.pi/60),weights=convolution)
