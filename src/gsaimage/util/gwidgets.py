@@ -166,7 +166,7 @@ class GStackedWidget(QtWidgets.QStackedWidget,Sequence,metaclass=GStackedMeta):
                 key = self.model.index(key)
             except:
                 raise KeyError("Key '%s' is not in model."%key)
-        if key < self.count():
+        if -self.count() <= key < self.count():
             key = key % self.count()
             return self.widget(key)
         else:
