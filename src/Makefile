@@ -17,6 +17,6 @@ clean:
 
 distclean: clean
 	rm -rf ${DESTDIR}/bin
-	rm -rf ${DESTDIR}/gsaimage
+	rm -rf ${DESTDIR}/gsaimage*
 
 .PHONY: all gsaimage install clean distclean
