@@ -1,4 +1,3 @@
-from gresq.database import dal, Base
 from gresq.database.models import (
     Sample,
     PreparationStep,
@@ -12,16 +11,13 @@ from gresq.database.models import (
     Software,
 )
 
-from gresq.config import config
-
 # from gresq.recipe import Recipe
-from sqlalchemy import String, Integer, Float, Numeric
+from sqlalchemy import String, Integer, Float
 from gresq.util.box_adaptor import BoxAdaptor
 import uuid
 import pandas as pd
 import os
 import sys
-import datetime
 from datetime import date
 
 par = os.path.abspath(os.path.pardir)

@@ -1,4 +1,3 @@
-import os
 import cv2
 import numpy as np
 from PIL import Image
@@ -12,11 +11,9 @@ import inspect
 from mlxtend.frequent_patterns import apriori
 import functools
 import logging
-from sqlalchemy import String, Integer, Float, Numeric, Date
+from sqlalchemy import String, Integer, Float, Date
 from collections.abc import Sequence
-from collections import OrderedDict, deque
 import pyqtgraph as pg
-from util.gwidgets import LabelMaker, SpacerMaker, BasicLabel, SubheaderLabel, HeaderLabel, MaxSpacer
 
 logger = logging.getLogger(__name__)
 
@@ -174,10 +171,10 @@ class ResultsTableModel(QtCore.QAbstractTableModel):
             item = self.df[column]
             return item.iloc[row].values[0]
 
-    def rowCount(self, parent):
+    def rowCount(self,parent):
         return self.df.shape[0]
 
-    def columnCount(self, parent):
+    def columnCount(self,parent):
         return self.df.shape[1]
 
     def data(self, index, role=QtCore.Qt.DisplayRole):

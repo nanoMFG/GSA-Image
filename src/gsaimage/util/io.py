@@ -1,18 +1,12 @@
-import os
-import numpy as np
-from PIL import Image
-from PyQt5 import QtGui, QtCore, QtWidgets
-import copy
-import requests
-import traceback
-import functools
 import json
-import cv2
-from util.util import errorCheck
 import logging
-from collections.abc import Sequence
-from collections import OrderedDict, deque
-import pyqtgraph as pg
+import os
+from collections import deque
+
+import cv2
+import requests
+from PyQt5 import QtGui, QtCore, QtWidgets
+from util.util import errorCheck
 
 logger = logging.getLogger(__name__)
 

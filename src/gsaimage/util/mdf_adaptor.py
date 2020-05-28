@@ -1,6 +1,7 @@
-from mdf_connect_client import MDFConnectClient
-from datetime import datetime
 import uuid
+from datetime import datetime
+
+from mdf_connect_client import MDFConnectClient
 
 
 class MDFException(Exception):

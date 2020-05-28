@@ -30,6 +30,8 @@ from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('imageAxisOrder', 'row-major')
 
+REPO_DIR = subprocess.Popen(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE).communicate()[0].rstrip().decode('utf-8')
+
 QW=QtWidgets
 QC=QtCore
 QG=QtGui
@@ -89,16 +91,21 @@ class Main(QW.QMainWindow):
         about_dialog.setText("About This Tool")
         about_dialog.setWindowModality(QC.Qt.WindowModal)
 
+        with open(os.path.join(REPO_DIR,'COPYRIGHT'),'r') as f:
+            copyright = f.read()
+
+        with open(os.path.join(REPO_DIR,'VERSION'),'r') as f:
+            version = f.read()
+
         # Needs text
-        about_text = """
-        """
+        about_text = "Version: %s \n\n"%version
+        about_text += copyright
 
         about_dialog.setInformativeText(about_text)
         about_dialog.exec()
 
     def importTestImage(self):
-        repo_dir = subprocess.Popen(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE).communicate()[0].rstrip().decode('utf-8')
-        path = os.path.join(repo_dir,'data','test.tif')
+        path = os.path.join(REPO_DIR,'data','test2.tif')
         self.mainWidget.importImage(path)
 
 class GSAImage(QW.QWidget):
@@ -1396,6 +1403,9 @@ class DrawScale(Modification):
 
         layout = QG.QGridLayout(self)
         layout.addWidget(self.widget)
+
+    def px_per_um(self):
+        return int(1/self.widget.umPerPx)
 
 class DrawScaleMask(MaskingModification):
     def __init__(self,*args,**kwargs):

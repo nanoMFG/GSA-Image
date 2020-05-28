@@ -1,6 +1,4 @@
-from gresq.database import dal, Base
 from gresq.database.models import Sample, PreparationStep
-from gresq.config import config
 import pandas as pd
 import os
 

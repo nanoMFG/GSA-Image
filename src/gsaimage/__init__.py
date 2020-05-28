@@ -1,6 +1,6 @@
 
 from .gsaimage import *
-from .image import ImageEditor
 from .gsaimage import main
+from .image import ImageEditor
 
 __version__ = "0.0.0"

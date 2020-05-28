@@ -1,14 +1,14 @@
 from __future__ import division
+
+import io
+
 import numpy as np
-import scipy as sc
-import cv2, sys, time, json, copy, subprocess, os
-from skimage import transform
-from PyQt5 import QtGui, QtCore, QtWidgets
 import pyqtgraph as pg
 from PIL import Image
-import collections
-import io
+from PyQt5 import QtGui, QtCore
+
 from .gsaimage import FilterPattern, RemoveScale, Crop, DrawScale, InitialImage, Modification
+
 
 class ImageEditor(QtGui.QScrollArea):
     submitClicked = QtCore.pyqtSignal(int,int,object) # sem_id, px_per_um, mask

@@ -1,7 +1,8 @@
-from PIL import Image
-from PyQt5 import QtGui, QtWidgets, QtCore
 import logging
-import cairosvg, io, os, sys
+import os
+import sys
+
+from PyQt5 import QtGui, QtWidgets, QtCore
 
 logger = logging.getLogger(__name__)
 

@@ -1,9 +1,8 @@
-from boxsdk import JWTAuth, Client
-from boxsdk.object.folder import Folder
-from pprint import pprint
+import logging
 import os.path
 import uuid
-import logging
+
+from boxsdk import JWTAuth, Client
 
 logger = logging.getLogger(__name__)
 

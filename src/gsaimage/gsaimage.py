@@ -1,24 +1,33 @@
 from __future__ import division
-import numpy as np
-import scipy as sc
-import cv2, sys, time, json, copy, subprocess, os
-from skimage import transform
-from skimage import util
-from skimage import color
+
 import functools
-from skimage.draw import circle as skcircle
-from PyQt5 import QtGui, QtCore, QtWidgets
+import logging
+import traceback
+from collections import OrderedDict
+
+import cv2
+import json
+import numpy as np
+import os
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from pyqtgraph import Point
+import scipy as sc
+import subprocess
+import sys
+import time
 from PIL import Image
-from collections import OrderedDict
-from sklearn.cluster import MiniBatchKMeans, DBSCAN
+from PIL.ImageQt import ImageQt
+from PyQt5 import QtGui, QtCore, QtWidgets
+from pyqtgraph import Point
+from skimage import transform
+from skimage import util
+from skimage.draw import circle as skcircle
+from sklearn.cluster import MiniBatchKMeans
 from sklearn.mixture import GaussianMixture
-import matplotlib.pyplot as plt
-import traceback
 
+logger = logging.getLogger(__name__)
 pg.setConfigOption('background', 'w')
+pg.setConfigOption('imageAxisOrder', 'row-major')
 
 tic = time.time()
 
@@ -124,7 +133,10 @@ class GSAImage(QtWidgets.QWidget):
 
         self.wModList = QtGui.QListWidget()
         self.wModList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
+        # self.wModList.setIconSize(QtCore.QSize(72, 72))
         self.wModList.currentRowChanged.connect(self.selectMod)
+        # self.wModList.currentRowChanged.connect(self.setListIcon)
+
 
         self.wMain = QtGui.QWidget()
         self.wMain.setFixedWidth(250)
@@ -140,6 +152,7 @@ class GSAImage(QtWidgets.QWidget):
         self.wImgBox = pg.GraphicsLayoutWidget()
         self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
         self.wImgItem = SmartImageItem()
+        # self.wImgItem.sigImageChanged.connect(lambda: self.setListIcon(self.wModList.currentRow()))
         self.wImgBox_VB.addItem(self.wImgItem)
         self.wImgBox_VB.setAspectLocked(True)
         # self.wImgBox.setFixedWidth(400)
@@ -166,6 +179,13 @@ class GSAImage(QtWidgets.QWidget):
         obj.layout.setColumnStretch(1,3)
         obj.updateAll()
         return obj
+
+    def setListIcon(self,index=None):
+        if isinstance(index,int) and index < self.wModList.count():
+            pic = Image.fromarray(self.modifications[index].image())
+            pic.thumbnail((72,72))
+            icon = QtGui.QIcon(QtGui.QPixmap.fromImage(ImageQt(pic)))
+            self.wModList.item(index).setIcon(icon)
 
     def exportImage(self):
         if len(self.modifications) > 0:
@@ -330,7 +350,7 @@ class GSAImage(QtWidgets.QWidget):
             if self.wModList.count() > 0:
                 self.wModList.setCurrentRow(self.wModList.count()-1)
 
-    @errorCheck(logging=False,show_traceback=False)
+    @errorCheck(logging=False,show_traceback=True)
     def addMod(self,mod=None):
         if mod == None:
             if len(self.modifications) > 0:
@@ -2077,6 +2097,34 @@ class SobelFilter(Modification):
         self.sobel_size = 3
         self.convolution = np.zeros(60)
 
+        self._maskClasses = OrderedDict()
+        self._maskClasses['Custom'] = CustomFilter
+        self._maskClasses['Erase'] = EraseFilter
+
+        self.wFilterType = QtWidgets.QComboBox()
+        self.wFilterType.addItems(list(self._maskClasses.keys()))
+
+        self.wFilterList = QtGui.QListWidget()
+        self.wFilterList.setSelectionMode(QtGui.QAbstractItemView.SingleSelection)
+        self.wAdd = QtGui.QPushButton('Add Region')
+        self.wRemove = QtGui.QPushButton('Delete Region')
+
+        self.wImgBox = pg.GraphicsLayoutWidget()
+        self.wImgBox_VB = self.wImgBox.addViewBox(row=1,col=1)
+        self.wImgROI = SmartImageItem()
+        self.wImgROI.setImage(self.mod_in.image(),levels=(0,255))
+        self.wImgBox_VB.addItem(self.wImgROI)
+        self.wImgBox_VB.setAspectLocked(True)
+        self.wImgBox_VB.sigResized.connect(lambda v: self.wImgROI.updateCursor())
+        self.wImgBox_VB.sigTransformChanged.connect(lambda v: self.wImgROI.updateCursor())
+
+        layer_layout = QtGui.QGridLayout()
+        layer_layout.setAlignment(QtCore.Qt.AlignTop)
+        layer_layout.addWidget(self.wFilterList,0,0,6,1)
+        layer_layout.addWidget(self.wFilterType,0,1)
+        layer_layout.addWidget(self.wAdd,1,1)
+        layer_layout.addWidget(self.wRemove,2,1)
+
         self.wLayout = pg.LayoutWidget()
         self.wLayout.layout.setAlignment(QtCore.Qt.AlignTop)
 
@@ -2103,15 +2151,24 @@ class SobelFilter(Modification):
         self.wHistPlot = pg.PlotWidget(title='Angle Histogram',pen=pg.mkPen(color='k',width=4))
         self.wHistPlot.setXRange(0,180)
         self.wHistPlot.hideAxis('left')
+        self.wHistPlot.setLabel('bottom',text="Angle")
 
         self.wConvPlot = pg.PlotWidget(title='Convolution with Comb Function',pen=pg.mkPen(color='k',width=4))
         self.wConvPlot.setXRange(0,60)
         self.wConvPlot.hideAxis('left')
+        self.wConvPlot.setLabel('bottom',text="Angle")
 
         self.wStd = QtGui.QLabel('')
+        self.shiftAngle = QtGui.QLabel('')
 
         self.exportHistBtn = QtGui.QPushButton('Export Histogram')
         self.exportConvBtn = QtGui.QPushButton('Export Convolution')
+        self.exportDataBtn = QtGui.QPushButton('Export Data')
+
+        self.colors = QtGui.QComboBox()
+        self.colors.addItems(['r', 'g', 'b', 'c', 'm', 'y', 'k', 'w'])
+
+        self.customShift = QtGui.QLineEdit('')
 
         self.wLayout.addWidget(QtGui.QLabel('Size:'),0,0)
         self.wLayout.addWidget(self.wSobelSizeSlider,0,1)
@@ -2120,14 +2177,36 @@ class SobelFilter(Modification):
         self.wLayout.addWidget(self.wConvPlot,8,0,4,4)
         self.wLayout.addWidget(QtGui.QLabel('Shifted St. Dev.:'),12,0)
         self.wLayout.addWidget(self.wStd,12,1)
-        self.wLayout.addWidget(self.exportHistBtn,13,0)
-        self.wLayout.addWidget(self.exportConvBtn,13,1)
+        self.wLayout.addWidget(QtGui.QLabel("Color:"),13,0)
+        self.wLayout.addWidget(self.colors,13,1)
+        self.wLayout.addWidget(QtGui.QLabel("Custom Shift:"),14,0)
+        self.wLayout.addWidget(QtGui.QLabel("Shift Angle:"),15,0)
+        self.wLayout.addWidget(self.shiftAngle,15,1)
+        self.wLayout.addWidget(self.customShift,14,1)
+        self.wLayout.addWidget(self.exportHistBtn,18,0)
+        self.wLayout.addWidget(self.exportConvBtn,18,1)
+        self.wLayout.addWidget(self.exportDataBtn,19,0,2)
 
         self.wSobelSizeSlider.valueChanged.connect(self.update_view)
-
-        self.update_view()
         self.exportHistBtn.clicked.connect(lambda: self.export(self.wHistPlot.getPlotItem()))
         self.exportConvBtn.clicked.connect(lambda: self.export(self.wConvPlot.getPlotItem()))
+        self.exportDataBtn.clicked.connect(self.exportData)
+        self.colors.currentIndexChanged.connect(lambda x: self.update_view())
+        self.customShift.textChanged.connect(lambda x: self.update_view())
+
+        self.update_view()
+
+    @errorCheck(error_text="Error exporting data!")
+    def exportData(self):
+        path = os.path.join(os.getcwd(),"untitled.json")
+        filename = QtWidgets.QFileDialog.getSaveFileName(None,
+            "Export Data",
+            path,
+            "JSON (*.json)",
+            "JSON (*.json)")[0]
+        with open(filename,'w') as f:
+            json.dump(self.properties,f)
+
 
     @errorCheck(error_text="Error exporting item!")
     def export(self,item):
@@ -2197,7 +2276,10 @@ class SobelFilter(Modification):
         self.convolution = self.convolution/sum(self.convolution)
         cos = np.average(np.cos(np.arange(len(self.convolution))*2*np.pi/60),weights=self.convolution)
         sin = np.average(np.sin(np.arange(len(self.convolution))*2*np.pi/60),weights=self.convolution)
-        self.periodic_mean = np.round((np.arctan2(-sin,-cos)+np.pi)*60/2/np.pi).astype(int)
+        if self.customShift.text()!='':
+            self.periodic_mean = int('0'+self.customShift.text())
+        else:
+            self.periodic_mean = np.round((np.arctan2(-sin,-cos)+np.pi)*60/2/np.pi).astype(int)
         self.convolution = np.roll(self.convolution,30-self.periodic_mean)
         self.periodic_var = np.average((np.arange(len(self.convolution))-30)**2,weights=self.convolution)
 
@@ -2206,25 +2288,32 @@ class SobelFilter(Modification):
 
     def update_view(self):
         self.update_image()
+        color = pg.mkColor(self.colors.currentText())
+        color.setAlpha(150)
+
         self.img_item.setImage(self.properties['magnitude'])
         self.wConvPlot.clear()
         self.wConvPlot.plot(
             range(len(self.convolution)+1),
             self.convolution,
             stepMode=True,
+            fillLevel=0,
+            brush=color,
             pen=pg.mkPen(color='k',width=4))
         self.wConvPlot.addLine(x=30)
         self.wConvPlot.addLine(x=30-np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5],width=4))
         self.wConvPlot.addLine(x=30+np.sqrt(self.periodic_var),pen=pg.mkPen(dash=[3,5],width=4))
         self.wHistPlot.clear()
+
         self.wHistPlot.plot(
             self.properties['angle_histogram']['x'],
             self.properties['angle_histogram']['y'],
             stepMode=True,
             fillLevel=0,
-            brush=(0,0,255,150),
+            brush=color,
             pen=pg.mkPen(color='k',width=4))
         self.wStd.setNum(np.sqrt(self.periodic_var))
+        self.shiftAngle.setNum(self.periodic_mean)
 
         return self.properties
 
