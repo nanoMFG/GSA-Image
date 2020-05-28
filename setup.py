@@ -14,5 +14,6 @@ setup(
           'gui_scripts': [
               'gsaimage = gsaimage.__main__:main'
           ]
-      }
+      },
+   include_package_data=True,
 )

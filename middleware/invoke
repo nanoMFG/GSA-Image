@@ -1,5 +1,5 @@
 #!/bin/sh
 
-/usr/bin/invoke_app "$@" -C "python @tool/bin/gsaimage/gsaimage.py nanohub" -t gsaimage \
+/usr/bin/invoke_app "$@" -C "python @tool/bin/gsaimage/gsaimage2.py nanohub" -t gsaimage \
                          -u anaconda3-5.1\
                          -u pyqtgraph-0.10.0
