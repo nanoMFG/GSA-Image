@@ -38,9 +38,11 @@ class Main(QW.QMainWindow):
     """
     Main window containing the GSAImage widget. Adds menu bar / tool bar functionality.
     """
-    def __init__(self,mode='local',*args,**kwargs):
+    def __init__(self,mode='local', repo_dir = '', *args,**kwargs):
         super(Main,self).__init__(*args,**kwargs)
 
+        self.mode = mode
+        self.repo_dir = repo_dir
         self.mainWidget = GSAImage(mode=mode)
         self.setCentralWidget(self.mainWidget)
 
@@ -88,12 +90,21 @@ class Main(QW.QMainWindow):
         about_dialog = QW.QMessageBox(self)
         about_dialog.setText("About This Tool")
         about_dialog.setWindowModality(QC.Qt.WindowModal)
+        copyright_path = os.path.join(self.repo_dir,'COPYRIGHT')
+        print(f"okay:{copyright_path}")
+        if os.path.isfile(copyright_path):
+            with open(copyright_path,'r') as f:
+                copyright = f.read()
+                print(f"hey:{copyright}")
+        else:
+            copyright = ""
 
-        with open(os.path.join(REPO_DIR,'COPYRIGHT'),'r') as f:
-            copyright = f.read()
-
-        with open(os.path.join(REPO_DIR,'VERSION'),'r') as f:
-            version = f.read()
+        version_path =  os.path.join(self.repo_dir,'VERSION')
+        if os.path.isfile(version_path):
+            with open(os.path.join(self.repo_dir,'VERSION'),'r') as f:
+                version = f.read()
+        else:
+            version = ""
 
         # Needs text
         about_text = "Version: %s \n\n"%version
@@ -103,7 +114,7 @@ class Main(QW.QMainWindow):
         about_dialog.exec()
 
     def importTestImage(self):
-        path = os.path.join(REPO_DIR,'data','test2.tif')
+        path = os.path.join(self.repo_dir,'data','test.tif')
         self.mainWidget.importImage(path)
 
 class GSAImage(QW.QWidget):
@@ -1890,15 +1901,17 @@ def main():
     if mode not in ['nanohub','local']:
         mode = 'local'
 
-    global REPO_DIR
+    REPO_DIR = "."
     if mode == 'local':
         REPO_DIR = subprocess.Popen(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE).communicate()[0].rstrip().decode('utf-8')
     else:
-        pass
+        if os.environ.get("RUN_LOCATION"):
+            REPO_DIR = os.environ.get("RUN_LOCATION")
+    
     app = QG.QApplication([])
     # img_analyzer = GSAImage(mode=mode)
     # img_analyzer.run()
-    main = Main(mode=mode)
+    main = Main(mode=mode, repo_dir = REPO_DIR)
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
