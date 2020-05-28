@@ -30,8 +30,6 @@ from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('imageAxisOrder', 'row-major')
 
-REPO_DIR = subprocess.Popen(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE).communicate()[0].rstrip().decode('utf-8')
-
 QW=QtWidgets
 QC=QtCore
 QG=QtGui
@@ -1891,6 +1889,12 @@ def main():
         mode = 'local'
     if mode not in ['nanohub','local']:
         mode = 'local'
+
+    global REPO_DIR
+    if mode == 'local':
+        REPO_DIR = subprocess.Popen(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE).communicate()[0].rstrip().decode('utf-8')
+    else:
+        pass
     app = QG.QApplication([])
     # img_analyzer = GSAImage(mode=mode)
     # img_analyzer.run()
