@@ -11,6 +11,7 @@ Image analysis tool code repository for the Graphene Synthesis Analysis collabor
 ##### Running Locally
 
 `cd src/gsaimage`
+
 `python gsaimage2.py`
 
 ##### On nanoHUB
