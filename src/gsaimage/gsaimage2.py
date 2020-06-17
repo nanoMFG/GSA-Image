@@ -1359,7 +1359,7 @@ class DomainCentersMask(MaskingModification):
         if self.config.mode == 'local':
             name = QW.QFileDialog.getSaveFileName(None, 
                 "Export", 
-                path, 
+                default_name, 
                 "JSON File (*.json)",
                 "JSON File (*.json)")[0]
             if name != '' and check_extension(name, [".json"]):
