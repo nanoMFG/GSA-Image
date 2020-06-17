@@ -1369,6 +1369,7 @@ class DomainCentersMask(MaskingModification):
             path = os.path.join(os.getcwd(),default_name)
             with open(path,'w') as f:
                 json.dump(self._data,f)
+            print(path)
             subprocess.check_output('exportfile %s'%(path),shell=True)
             try:
                 os.remove(path)
