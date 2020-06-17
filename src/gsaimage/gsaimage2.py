@@ -68,7 +68,8 @@ class Main(QW.QMainWindow):
         fileMenu.addAction(importAction)
         fileMenu.addAction(exportAction)
         fileMenu.addAction(clearAction)
-        fileMenu.addAction(exitAction)
+        if mode == 'local':
+            fileMenu.addAction(exitAction)
 
         aboutAction = QG.QAction("&About",self)
         aboutAction.setIcon(Icon('info.svg'))
@@ -260,6 +261,7 @@ class GSAImage(QW.QWidget):
         else:
             raise IOError("No image to return.")
 
+    @errorCheck()
     def clear(self):
         self.stackedControl.clear()
 
