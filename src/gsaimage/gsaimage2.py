@@ -1261,10 +1261,6 @@ class FilterPattern(Modification):
             name = default_name+"_mask.png"
             cv2.imwrite(name,export_mask)
             subprocess.check_output('exportfile %s'%name,shell=True)
-            try:
-                os.remove(name)
-            except:
-                pass
         else:
             return
 
@@ -1371,10 +1367,6 @@ class DomainCentersMask(MaskingModification):
                 json.dump(self._data,f)
             print(path)
             subprocess.check_output('exportfile %s'%(path),shell=True)
-            try:
-                os.remove(path)
-            except:
-                pass
         else:
             return
 
@@ -1820,10 +1812,6 @@ class Alignment(Modification):
             name = default_name+".png"
             exporter.export(fileName=name)
             subprocess.check_output('exportfile %s'%name,shell=True)
-            try:
-                os.remove(name)
-            except:
-                pass
         else:
             return
 
