@@ -1499,7 +1499,7 @@ class DrawScaleMask(MaskingModification):
 
             self._mask = np.zeros_like(self.image(copy=False))
             self._mask[rr,cc] = True
-            self._mask = cv2.dilate(self._mask,np.ones((5,5),np.uint8),iterations = 1).astype(bool)
+            self._mask = cv2.dilate(self._mask,np.ones((15,15),np.uint8),iterations = 1).astype(bool)
 
             self.drawLengthPx = int(la.norm(np.array(self.startPos)-np.array(self.endPos)))
 
