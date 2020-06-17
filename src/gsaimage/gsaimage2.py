@@ -254,10 +254,6 @@ class GSAImage(QW.QWidget):
         self.clear()
         try:
             img = np.array(Image.open(filepath).convert('L'))
-            try:
-                os.remove(filepath)
-            except:
-                pass
         except:
             raise IOError("Cannot read file %s"%filepath)
         if isinstance(img,np.ndarray):
