@@ -316,9 +316,9 @@ class GSAImage(QW.QWidget):
         else:
             self.toggleDisplay.setCurrentIndex(0)
             self.toggleControl.setCurrentIndex(0)
-            self.defaultDisplay.setImage(self.stackedControl[index].image(),levels=(0,255))
             self.controlDisplay.setImageWidget(self.defaultDisplay)
         if index >= 0:
+            self.defaultDisplay.setImage(self.stackedControl[index].image(),levels=(0,255))
             self.stackedControl[index].update_view()
 
     def run(self):
