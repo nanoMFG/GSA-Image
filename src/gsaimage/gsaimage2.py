@@ -254,6 +254,10 @@ class GSAImage(QW.QWidget):
         self.clear()
         try:
             img = np.array(Image.open(filepath).convert('L'))
+            try:
+                os.remove(filepath)
+            except:
+                pass
         except:
             raise IOError("Cannot read file %s"%os.path.basename(filepath))
         if isinstance(img,np.ndarray):
@@ -1366,11 +1370,12 @@ class DomainCentersMask(MaskingModification):
                 with open(name,'w') as f:
                     json.dump(self._data,f)
         elif self.config.mode == 'nanohub':
-            with open(default_name,'w') as f:
+            path = os.path.join(os.getcwd(),default_name)
+            with open(path,'w') as f:
                 json.dump(self._data,f)
-            subprocess.check_output('exportfile %s'%(default_name),shell=True)
+            subprocess.check_output('exportfile %s'%(path),shell=True)
             try:
-                os.remove(default_name)
+                os.remove(path)
             except:
                 pass
         else:
