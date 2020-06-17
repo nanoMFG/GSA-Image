@@ -259,7 +259,7 @@ class GSAImage(QW.QWidget):
             except:
                 pass
         except:
-            raise IOError("Cannot read file %s"%os.path.basename(filepath))
+            raise IOError("Cannot read file %s"%filepath)
         if isinstance(img,np.ndarray):
             mod = InitialImage(config=self.config,image=img,width=self.controlWidth)
             self.setWindowTitle(os.path.basename(os.path.basename(filepath)))
