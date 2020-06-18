@@ -11,6 +11,8 @@ from util.util import errorCheck
 
 logger = logging.getLogger(__name__)
 
+IMPORT_LOCATION = "/apps/importfile/bin/importfile"
+
 class DownloadThread(QtCore.QThread):
     """
     Threading class for downloading files. Can be used to download files in parallel.
@@ -185,7 +187,7 @@ class IO(QtWidgets.QWidget):
             self.importClicked.emit(file_path) 
         elif self.config.mode == "nanohub":
             file_path = (
-                subprocess.check_output("importfile", shell=True)
+                subprocess.check_output(IMPORT_LOCATION, shell=True)
                 .strip()
                 .decode("utf-8")
             )
