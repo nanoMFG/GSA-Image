@@ -535,7 +535,7 @@ class ColorMask(Modification):
         layout = QG.QGridLayout(self)
         layout.addWidget(self.histPlot,1,0,QC.Qt.AlignTop)
 
-        help = QW.QLabel("Drag the red edges of the blue region to set pixel intensity bounds.")
+        help = QW.QLabel("Drag the edges of the blue region to set pixel intensity bounds.")
         help.setWordWrap(True)
         layout.addWidget(help,2,0)
 
