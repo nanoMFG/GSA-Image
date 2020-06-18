@@ -524,7 +524,7 @@ class ColorMask(Modification):
         self.histPlot.setLabel(axis='bottom',text='Pixel Intensity')
         self.histPlot.hideAxis('left')
 
-        self.lrItem = pg.LinearRegionItem((0,255),bounds=(0,255),pen=pg.mkPen(color='r',width=5))
+        self.lrItem = pg.LinearRegionItem((0,255),bounds=(0,255))
         self.lrItem.sigRegionChanged.connect(self.update_view)
         self.lrItem.sigRegionChangeFinished.connect(self.update_view)
 
