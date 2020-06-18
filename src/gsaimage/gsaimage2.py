@@ -911,7 +911,7 @@ class CustomFilter(MaskingModification):
         self.display().viewBox().sigResized.connect(lambda v: self.display().imageItem().updateCursor())
         self.display().viewBox().sigTransformChanged.connect(lambda v: self.display().imageItem().updateCursor())
 
-    def update_view(self,pos=None,scale=None):
+    def update_view(self,pos=None,scale=None,update_image=False):
         if self.display().imageItem().cursorRadius() is None:
             self.display().imageItem().updateCursor(self.sizeSlider.value())
         if pos is not None and scale is not None:
@@ -919,6 +919,9 @@ class CustomFilter(MaskingModification):
             ## Cursor position coordinate system is weird so adjustments are made.
             rr, cc = skcircle(shape[0]-pos[1],pos[0],self.sizeSlider.value()*scale,shape=shape)
             self._mask[rr,cc] = self.maskVal
+
+            if update_image == True:
+                self.imageChanged.emit(self.image(copy=False))
         else:
             self.imageChanged.emit(self.image(copy=False))
         self.maskChanged.emit(self.mask(copy=False))
@@ -1512,7 +1515,28 @@ class Erase(EraseFilter):
         EraseFilter.__init__(self,*args,**kwargs)
 
         self.maskChanged.disconnect()
-        self.imageChanged.connect(self.display().setImage)      
+        self.imageChanged.connect(self.display().setImage)
+
+    def updateDisplay(self,mask=None):
+        if mask is None:
+            mask = self.mask(copy=False)
+        if mask.dtype == bool:
+            self.display().setImage(mask_color_img(
+                img=self.inputMod.image(), 
+                mask=mask))
+
+    def update_view(self,pos=None,scale=None,update_image=True):
+        EraseFilter.update_view(self,pos,scale,update_image)
+
+    def image(self,*args,**kwargs):
+        try:
+            self.img_out = super(MaskingModification,self).image(startImage=False)
+            self.img_out[~self.mask(copy=False).astype(bool)] = 255
+        except Exception as e:
+            # print(e)
+            pass
+
+        return super(MaskingModification,self).image(*args,**kwargs)
 
 class AlignmentPlots(QW.QWidget):
     def __init__(self,*args,**kwargs):
