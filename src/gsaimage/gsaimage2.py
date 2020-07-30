@@ -320,7 +320,6 @@ class GSAImage(QW.QWidget):
         if index >= 0:
             self.defaultDisplay.setImage(image=self.stackedControl[index].image(),levels=(0,255))
             self.stackedControl[index].update_view()
-        print(self.defaultDisplay.image)
 
     def run(self):
         self.show()
