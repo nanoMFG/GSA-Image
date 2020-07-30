@@ -60,7 +60,7 @@ class Main(QW.QMainWindow):
 
         clearAction = QG.QAction("&Clear",self)
         clearAction.setIcon(Icon('trash.svg'))
-        clearAction.triggered.connect(self.mainWidget.clear)
+        clearAction.triggered.connect(lambda _: self.mainWidget.clear())
 
         exitAction = QG.QAction("&Exit",self)
         exitAction.setIcon(Icon('log-out.svg'))
@@ -178,7 +178,7 @@ class GSAImage(QW.QWidget):
         self.mod_list.setIconSize(QC.QSize(96, 96))
 
         # stackedDisplay holds the displays for each widget (Modification.display())
-        self.stackedDisplay = GStackedWidget()
+        self.stackedDisplay = QW.QStackedWidget()
         self.stackedDisplay.setSizePolicy(QtWidgets.QSizePolicy.Expanding,QtWidgets.QSizePolicy.Expanding)
 
         # defaultDisplay shown if selection is not last item in stack (to prevent editing prior layers)
@@ -275,6 +275,7 @@ class GSAImage(QW.QWidget):
     @errorCheck()
     def clear(self):
         self.stackedControl.clear()
+        self.defaultDisplay.clear()
 
     def removeMod(self):
         if self.stackedControl.count()>0:
@@ -303,7 +304,6 @@ class GSAImage(QW.QWidget):
         self.stackedControl.setCurrentIndex(index)
 
         mod.imageChanged.connect(lambda image: self.stackedControl.setIcon(index,mod.icon(self.mod_list.iconSize())))
-            
         mod.emitImage()
 
     def select(self, index=None):
@@ -318,8 +318,9 @@ class GSAImage(QW.QWidget):
             self.toggleControl.setCurrentIndex(0)
             self.controlDisplay.setImageWidget(self.defaultDisplay)
         if index >= 0:
-            self.defaultDisplay.setImage(self.stackedControl[index].image(),levels=(0,255))
+            self.defaultDisplay.setImage(image=self.stackedControl[index].image(),levels=(0,255))
             self.stackedControl[index].update_view()
+        print(self.defaultDisplay.image)
 
     def run(self):
         self.show()
@@ -908,8 +909,9 @@ class CustomFilter(MaskingModification):
         self.display().imageItem().setDraw(True)
         self.display().imageItem().cursorUpdateSignal.connect(self.update_view)
         self.display().imageItem().dragFinishedSignal.connect(lambda: self.imageChanged.emit(self.image(copy=False)))
-        self.display().viewBox().sigResized.connect(lambda v: self.display().imageItem().updateCursor())
-        self.display().viewBox().sigTransformChanged.connect(lambda v: self.display().imageItem().updateCursor())
+        if self.config.mode=='local':
+            self.display().viewBox().sigResized.connect(lambda v: self.display().imageItem().updateCursor())
+            self.display().viewBox().sigTransformChanged.connect(lambda v: self.display().imageItem().updateCursor())
 
     def update_view(self,pos=None,scale=None,update_image=False):
         if self.display().imageItem().cursorRadius() is None:
@@ -1166,6 +1168,7 @@ class FilterPattern(Modification):
         self.displayImage.setMaximumHeight(300)
         self.displayImage.viewBox().autoRange(padding=0)
         self.imageChanged.connect(self.displayImage.setImage)
+        self.imageChanged.connect(lambda _: self.displayImage.viewBox().autoRange(padding=0))
 
         bar_layout = QG.QGridLayout()
         bar_layout.addWidget(self.filterType,0,0)
