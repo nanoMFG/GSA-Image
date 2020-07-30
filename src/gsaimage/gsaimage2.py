@@ -1884,8 +1884,8 @@ class Alignment(Modification):
         self._data['Angular Convolution'] = {
             "Bin Edges (deg)": list(range(0,len(convolution)+1)), 
             "Values": convolution.tolist(),
-            "Mean Shift": periodic_mean,
-            "Variance": periodic_var}
+            "Mean Shift": int(periodic_mean),
+            "Variance": float(periodic_var)}
 
     def update_view(self):
         self.update_image()
