@@ -1812,13 +1812,18 @@ class Alignment(Modification):
     @errorCheck(error_text="Error exporting data!")
     def exportData(self):
         path = os.path.join(os.getcwd(),"untitled.json")
-        filename = QtWidgets.QFileDialog.getSaveFileName(None,
-            "Export Data",
-            path,
-            "JSON (*.json)",
-            "JSON (*.json)")[0]
-        with open(filename,'w') as f:
-            json.dump(self._data,f)
+        if self.config.mode == 'local':
+            filename = QtWidgets.QFileDialog.getSaveFileName(None,
+                "Export Data",
+                path,
+                "JSON (*.json)",
+                "JSON (*.json)")[0]
+            with open(filename,'w') as f:
+                json.dump(self._data,f)
+        else:
+            with open(path,'w') as f:
+                json.dump(self._data,f)
+            subprocess.check_output('exportfile %s'%path,shell=True)
 
 
     @errorCheck(error_text="Error exporting item!")
@@ -1836,9 +1841,9 @@ class Alignment(Modification):
             if name != '' and check_extension(name, [".png"]):
                 exporter.export(fileName=name)
         elif self.config.mode == 'nanohub':
-            name = default_name+".png"
-            exporter.export(fileName=name)
-            subprocess.check_output('exportfile %s'%name,shell=True)
+            path = os.path.join(os.getcwd(),default_name+".png")
+            exporter.export(fileName=path)
+            subprocess.check_output('exportfile %s'%path,shell=True)
         else:
             return
 
