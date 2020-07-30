@@ -1773,7 +1773,7 @@ class Alignment(Modification):
 
         exportData = QG.QAction('Export Data',self)
         exportData.setIcon(Icon('archive.svg'))
-        exportData.triggered.connect(lambda: self.exportData)
+        exportData.triggered.connect(lambda: self.exportData())
 
         self.exportBtn = QW.QPushButton("Export")
         self.exportBtn.setIcon(Icon('upload.svg'))
@@ -1829,7 +1829,8 @@ class Alignment(Modification):
     def export(self,item):
         default_name = "untitled"
         exporter = pyqtgraph.exporters.ImageExporter(item)
-        exporter.parameters()['width'] = 1024
+        exporter.params.param('width').setValue(1920, blockSignal=exporter.widthChanged)
+        exporter.params.param('height').setValue(1080, blockSignal=exporter.heightChanged)
         if self.config.mode == 'local':
             path = os.path.join(os.getcwd(),default_name+".png")
             name = QtWidgets.QFileDialog.getSaveFileName(None, 
