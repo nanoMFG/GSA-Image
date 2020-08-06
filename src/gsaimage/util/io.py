@@ -242,9 +242,10 @@ class IO(QtWidgets.QWidget):
                 directory,
                 filt)[0]
             if filename != '':
-                self.saveLocal(data,filename,ftype)
+                self.saveLocal(data,directory,ftype)
         elif self.config.mode == 'nanohub':
-            self.saveLocal(data,filename,ftype)
-            subprocess.check_output('exportfile %s'%filename,shell=True)
-            os.remove(filename)
+            self.saveLocal(data,directory,ftype)
+            # print(filename, os.path.isfile(filename))
+            subprocess.check_output('exportfile %s'%directory,shell=True)
+            # os.remove(filename)
 
