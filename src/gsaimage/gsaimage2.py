@@ -26,6 +26,7 @@ from util.gwidgets import *
 from util.icons import Icon
 from util.io import IO
 from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
+# from keras.models import load_model
 
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('imageAxisOrder', 'row-major')
@@ -33,6 +34,8 @@ pg.setConfigOption('imageAxisOrder', 'row-major')
 QW=QtWidgets
 QC=QtCore
 QG=QtGui
+
+UNET_MODEL_PATH = ""
 
 class Main(QW.QMainWindow):
     """
@@ -997,6 +1000,15 @@ class ClusterFilter(MaskingModification):
 
     def filter(self):
         pass
+
+
+# class UNetFilter(MaskingModification):
+#     def __init__(self,*args,**kwargs):
+#         super(UNetFilter,self).__init__(*args,**kwargs)
+
+#     def update_image(self):
+#         model = load_model(UNET_MODEL_PATH)
+
 
 class KMeansFilter(ClusterFilter):
     __name__ = "K-Means Clustering"

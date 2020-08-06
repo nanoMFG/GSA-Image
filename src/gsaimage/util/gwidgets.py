@@ -325,7 +325,7 @@ class ImageWidget(pg.GraphicsLayoutWidget):
         if isinstance(image,str):
             image = np.array(Image.open(path))
         if image is None:
-             image = 255*np.ones((764,764))
+            image = 255*np.ones((764,764))
 
         if smart:
             self._img_item = SmartImageItem(image)
@@ -346,11 +346,11 @@ class ImageWidget(pg.GraphicsLayoutWidget):
         if 'levels' not in kwargs.keys():
             kwargs['levels']=(0,255)
         self._img_item.setImage(*args,**kwargs)
+        self._viewbox.autoRange()
 
 class ControlImageWidget(QtWidgets.QWidget):
     def __init__(self,imageWidget,*args,**kwargs):
         super(ControlImageWidget,self).__init__(*args,**kwargs)
-        self.imageWidget = imageWidget
         self.stacked = False
 
         self.zoomInBtn = QtWidgets.QPushButton()

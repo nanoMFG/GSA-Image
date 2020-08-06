@@ -15,6 +15,7 @@ from sqlalchemy import String, Integer, Float, Date
 from collections.abc import Sequence
 import pyqtgraph as pg
 
+logging.basicConfig(filename='gsaimage.log')
 logger = logging.getLogger(__name__)
 
 sql_validator = {
