@@ -518,6 +518,7 @@ class ColorMask(Modification):
         self.lrItem = None
 
         self.histPlot = pg.PlotWidget()
+        self.histPlot.setMenuEnabled(False)
         self.histPlot.plot(*self.img_hist,
             pen=pg.mkPen(color='k',width=5),
             fillLevel=0,
