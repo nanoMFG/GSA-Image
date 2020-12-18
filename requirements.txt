@@ -1,6 +1,6 @@
 pytest
 pandas==0.23.4
-sqlalchemy==1.2.13
+sqlalchemy==1.3.0
 boxsdk==2.0.0
 mdf_connect_client>=0.3.1
 mdf_forge>=0.7.2
