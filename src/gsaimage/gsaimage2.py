@@ -26,7 +26,6 @@ from util.gwidgets import *
 from util.icons import Icon
 from util.io import IO
 from util.util import errorCheck, mask_color_img, check_extension, ConfigParams
-# from keras.models import load_model
 
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('imageAxisOrder', 'row-major')
@@ -34,8 +33,6 @@ pg.setConfigOption('imageAxisOrder', 'row-major')
 QW=QtWidgets
 QC=QtCore
 QG=QtGui
-
-UNET_MODEL_PATH = ""
 
 class Main(QW.QMainWindow):
     """
@@ -63,7 +60,7 @@ class Main(QW.QMainWindow):
 
         clearAction = QG.QAction("&Clear",self)
         clearAction.setIcon(Icon('trash.svg'))
-        clearAction.triggered.connect(lambda _: self.mainWidget.clear())
+        clearAction.triggered.connect(self.mainWidget.clear)
 
         exitAction = QG.QAction("&Exit",self)
         exitAction.setIcon(Icon('log-out.svg'))
@@ -181,7 +178,7 @@ class GSAImage(QW.QWidget):
         self.mod_list.setIconSize(QC.QSize(96, 96))
 
         # stackedDisplay holds the displays for each widget (Modification.display())
-        self.stackedDisplay = QW.QStackedWidget()
+        self.stackedDisplay = GStackedWidget()
         self.stackedDisplay.setSizePolicy(QtWidgets.QSizePolicy.Expanding,QtWidgets.QSizePolicy.Expanding)
 
         # defaultDisplay shown if selection is not last item in stack (to prevent editing prior layers)
@@ -278,7 +275,6 @@ class GSAImage(QW.QWidget):
     @errorCheck()
     def clear(self):
         self.stackedControl.clear()
-        self.defaultDisplay.clear()
 
     def removeMod(self):
         if self.stackedControl.count()>0:
@@ -307,6 +303,7 @@ class GSAImage(QW.QWidget):
         self.stackedControl.setCurrentIndex(index)
 
         mod.imageChanged.connect(lambda image: self.stackedControl.setIcon(index,mod.icon(self.mod_list.iconSize())))
+            
         mod.emitImage()
 
     def select(self, index=None):
@@ -321,7 +318,7 @@ class GSAImage(QW.QWidget):
             self.toggleControl.setCurrentIndex(0)
             self.controlDisplay.setImageWidget(self.defaultDisplay)
         if index >= 0:
-            self.defaultDisplay.setImage(image=self.stackedControl[index].image(),levels=(0,255))
+            self.defaultDisplay.setImage(self.stackedControl[index].image(),levels=(0,255))
             self.stackedControl[index].update_view()
 
     def run(self):
@@ -518,7 +515,6 @@ class ColorMask(Modification):
         self.lrItem = None
 
         self.histPlot = pg.PlotWidget()
-        self.histPlot.setMenuEnabled(False)
         self.histPlot.plot(*self.img_hist,
             pen=pg.mkPen(color='k',width=5),
             fillLevel=0,
@@ -912,9 +908,8 @@ class CustomFilter(MaskingModification):
         self.display().imageItem().setDraw(True)
         self.display().imageItem().cursorUpdateSignal.connect(self.update_view)
         self.display().imageItem().dragFinishedSignal.connect(lambda: self.imageChanged.emit(self.image(copy=False)))
-        if self.config.mode=='local':
-            self.display().viewBox().sigResized.connect(lambda v: self.display().imageItem().updateCursor())
-            self.display().viewBox().sigTransformChanged.connect(lambda v: self.display().imageItem().updateCursor())
+        self.display().viewBox().sigResized.connect(lambda v: self.display().imageItem().updateCursor())
+        self.display().viewBox().sigTransformChanged.connect(lambda v: self.display().imageItem().updateCursor())
 
     def update_view(self,pos=None,scale=None,update_image=False):
         if self.display().imageItem().cursorRadius() is None:
@@ -1001,15 +996,6 @@ class ClusterFilter(MaskingModification):
 
     def filter(self):
         pass
-
-
-# class UNetFilter(MaskingModification):
-#     def __init__(self,*args,**kwargs):
-#         super(UNetFilter,self).__init__(*args,**kwargs)
-
-#     def update_image(self):
-#         model = load_model(UNET_MODEL_PATH)
-
 
 class KMeansFilter(ClusterFilter):
     __name__ = "K-Means Clustering"
@@ -1180,7 +1166,6 @@ class FilterPattern(Modification):
         self.displayImage.setMaximumHeight(300)
         self.displayImage.viewBox().autoRange(padding=0)
         self.imageChanged.connect(self.displayImage.setImage)
-        self.imageChanged.connect(lambda _: self.displayImage.viewBox().autoRange(padding=0))
 
         bar_layout = QG.QGridLayout()
         bar_layout.addWidget(self.filterType,0,0)
@@ -1786,7 +1771,7 @@ class Alignment(Modification):
 
         exportData = QG.QAction('Export Data',self)
         exportData.setIcon(Icon('archive.svg'))
-        exportData.triggered.connect(lambda: self.exportData())
+        exportData.triggered.connect(lambda: self.exportData)
 
         self.exportBtn = QW.QPushButton("Export")
         self.exportBtn.setIcon(Icon('upload.svg'))
@@ -1824,26 +1809,20 @@ class Alignment(Modification):
     @errorCheck(error_text="Error exporting data!")
     def exportData(self):
         path = os.path.join(os.getcwd(),"untitled.json")
-        if self.config.mode == 'local':
-            filename = QtWidgets.QFileDialog.getSaveFileName(None,
-                "Export Data",
-                path,
-                "JSON (*.json)",
-                "JSON (*.json)")[0]
-            with open(filename,'w') as f:
-                json.dump(self._data,f)
-        else:
-            with open(path,'w') as f:
-                json.dump(self._data,f)
-            subprocess.check_output('exportfile %s'%path,shell=True)
+        filename = QtWidgets.QFileDialog.getSaveFileName(None,
+            "Export Data",
+            path,
+            "JSON (*.json)",
+            "JSON (*.json)")[0]
+        with open(filename,'w') as f:
+            json.dump(self._data,f)
 
 
     @errorCheck(error_text="Error exporting item!")
     def export(self,item):
         default_name = "untitled"
         exporter = pyqtgraph.exporters.ImageExporter(item)
-        exporter.params.param('width').setValue(1920, blockSignal=exporter.widthChanged)
-        exporter.params.param('height').setValue(1080, blockSignal=exporter.heightChanged)
+        exporter.parameters()['width'] = 1024
         if self.config.mode == 'local':
             path = os.path.join(os.getcwd(),default_name+".png")
             name = QtWidgets.QFileDialog.getSaveFileName(None, 
@@ -1854,9 +1833,9 @@ class Alignment(Modification):
             if name != '' and check_extension(name, [".png"]):
                 exporter.export(fileName=name)
         elif self.config.mode == 'nanohub':
-            path = os.path.join(os.getcwd(),default_name+".png")
-            exporter.export(fileName=path)
-            subprocess.check_output('exportfile %s'%path,shell=True)
+            name = default_name+".png"
+            exporter.export(fileName=name)
+            subprocess.check_output('exportfile %s'%name,shell=True)
         else:
             return
 
@@ -1897,8 +1876,8 @@ class Alignment(Modification):
         self._data['Angular Convolution'] = {
             "Bin Edges (deg)": list(range(0,len(convolution)+1)), 
             "Values": convolution.tolist(),
-            "Mean Shift": int(periodic_mean),
-            "Variance": float(periodic_var)}
+            "Mean Shift": periodic_mean,
+            "Variance": periodic_var}
 
     def update_view(self):
         self.update_image()
